@@ -5,6 +5,7 @@ import {
 import { INSTAGRAM, PHONE, PHONE_VIEW } from "../../utils/gym"
 import api, { adminApi } from "../../axios"
 import { useNavigate } from "react-router-dom"
+import { homeOf } from "../../utils/sidebar"
 
 // Foydalanuvchi o'zi akkaunt ocha olmaydi: hisobni zal administratori ochadi.
 // Shu sababli sahifada ro'yxatdan o'tish yo'q, uning o'rniga "Akkaunt yo'qmi?" tushuntirishi turadi.
@@ -46,40 +47,68 @@ const Login = () => {
      const passwordRef = useRef(null)
      const newPasswordRef = useRef(null)
      const repeatRef = useRef(null)
-
-
+     
+     
      const [data, setData] = useState([])
      const [pending, setPending] = useState(null) // parolni almashtirishni kutayotgan foydalanuvchi: { user, zone }
      const [loading, setLoading] = useState(false)
      const [error, setError] = useState("")
-     const [isAdmin, setIsAdmin] = useState(false)
+     const [isAdmin, setIsAdmin] = useState("")
      const navigate = useNavigate()
-
+     
+     // Ro'yxat har safar "Men adminman" almashganda qayta yuklanadi. Eski so'rov kech kelib, yangisining
+     // ustidan yozib yubormasligi uchun cleanup da "bekor qilindi" belgisi qo'yiladi.
      useEffect(() => {
-          getSession();
-     }, []);
+          let cancelled = false
 
-     async function getSession(role) {
-          if(!role) setLoading(true)
-          try {
-               const response = await api.get(role === "admin" ? `${adminApi}/admins`: "/register")
-               setData(response.data)
-          } catch (err) {
-               setError("Serverga ulanib bo'lmadi. Keyinroq urinib ko'ring.")
-               console.log(err.message)
-          } finally {
-               setLoading(false)
+          async function getSession() {
+               // Yuklanguncha tugma o'chiq turadi va eski ro'yxat tozalanadi: boshqa tomonning ro'yxati bilan
+               // solishtirib "login noto'g'ri" deb chiqib qolmasligi uchun
+               setLoading(true)
+               setData([])
+               setError("")
+               try {
+                    const response = await api.get(isAdmin === "admin" ? `${adminApi}/admins`: "/register")
+                    if (!cancelled) setData(response.data)
+               } catch (err) {
+                    if (!cancelled) setError("Serverga ulanib bo'lmadi. Sahifani yangilab ko'ring.")
+                    console.log(err.message)
+               } finally {
+                    if (!cancelled) setLoading(false)
+               }
           }
+
+          getSession()
+          return () => { cancelled = true }
+     }, [isAdmin]);
+
+     function checked(e){
+          setIsAdmin(e.target.checked ? "admin" : "customer")
      }
 
      function finish(user) {
-          localStorage.setItem("userData", JSON.stringify(user)) // avval saqlaymiz, keyin o'tamiz
-          navigate("/dashboard")
+          // "Men adminman" belgilanmagan bo'lsa mijoz. Belgilangan bo'lsa admin: roli adminlar yozuvidan olinadi,
+          // noma'lum bo'lsa eng past huquq (staff) beriladi.
+          const role = isAdmin === "admin" ? (["staff", "owner"].includes(user.role) ? user.role : "staff") : "customer"
+
+          // Brauzerga faqat kerakli maydonlar yoziladi. Parol (password_hash) va ichki maydonlar yozilmaydi.
+          const saved = { id: user.id, full_name: user.full_name, phone_number: user.phone_number, role }
+          if (user.code) saved.code = user.code
+          
+          localStorage.setItem("userData", JSON.stringify(saved)) // avval saqlaymiz, keyin o'tamiz
+          navigate(homeOf(role), { replace: true })
      }
 
      function getFilterUSer(e) {
           e.preventDefault()
+          if (loading) return
           setError("")
+
+          // Ro'yxat kelmagan bo'lsa (server xatosi) "login noto'g'ri" demaymiz: sabab boshqa
+          if (!data.length) {
+               setError("Foydalanuvchilar ro'yxati yuklanmadi. Sahifani yangilab ko'ring.")
+               return
+          }
 
           const login = loginRef.current.value.trim()
           const password = passwordRef.current.value.trim()
@@ -87,9 +116,14 @@ const Login = () => {
           // 9 ta va undan ko'p raqam bo'lsa telefon, aks holda kartadagi kod deb olinadi
           const isPhone = digits(login).length >= 9
 
+          // Parol: yangi parol saqlangan bo'lsa (password_hash) faqat o'sha, hali saqlanmagan bo'lsa kartadagi kod.
+          // Shunda parol almashgach eski kod endi kirmaydi. Bo'sh parol hech qachon mos kelmaydi.
+          // vaqtinchalik sinov usuli, keyin password_hash tekshiruvi backendga o'tadi
+          const secretOf = (obj) => String(obj.password_hash || obj.code || "")
+
           const user = data.find((obj) =>
-               (isPhone ? samePhone(obj.phone_number, login) : String(obj.code) === login)
-               && String(obj.code || obj.password_hash) === password // vaqtinchalik sinov usuli, keyin password_hash bilan almashadi
+               (isPhone ? samePhone(obj.phone_number, login) : obj.code != null && String(obj.code) === login)
+               && secretOf(obj) !== "" && secretOf(obj) === password
           )
 
           if (!user) {
@@ -111,8 +145,9 @@ const Login = () => {
           e.preventDefault()
           setError("")
 
-          const password = newPasswordRef.current.value
-          const repeat = repeatRef.current.value
+          // Kirishda parol trim qilinadi, shuning uchun saqlashda ham trim: aks holda "abc " saqlanib, hech qachon kira olmaydi
+          const password = newPasswordRef.current.value.trim()
+          const repeat = repeatRef.current.value.trim()
 
           if (password.length < MIN_PASSWORD) {
                setError(`Parol kamida ${MIN_PASSWORD} ta belgidan iborat bo'lsin`)
@@ -124,13 +159,10 @@ const Login = () => {
           }
 
 
-          // TODO: yangi parolni saqlash so'rovi shu yerda sizniki (PUT /register/${pending.user.id}),
-          // setLoading(true) bilan boshlab, finally ichida setLoading(false) qiling.
-          // Saqlash muvaffaqiyatli bo'lgach: finish({ ...pending.user, must_change_password: false })
-          console.log(pending.user.id);
+          if (loading) return // ikki marta bosib yuborilsa ikkinchi so'rov ketmasin
+          setLoading(true)
           try {
-               const response = await api.put(isAdmin ? `${adminApi}/admins/${pending.user.id}` :`/register/${pending.user.id}`, { "password_hash": repeat })
-               setLoading(true)
+               await api.put(isAdmin === "admin" ? `${adminApi}/admins/${pending.user.id}` :`/register/${pending.user.id}`, { "must_change_password": false, "password_hash": password })
                finish({ ...pending.user, must_change_password: false })
           } catch (error) {
                setError("Serverga ulanib bo'lmadi. Keyinroq urinib ko'ring.")
@@ -139,6 +171,7 @@ const Login = () => {
                setLoading(false)
           }
      }
+
 
 
 
@@ -175,7 +208,7 @@ const Login = () => {
                               </Field>
 
                               <Field $prop="checkbox">
-                                   <input id="is-admin" type="checkbox" onChange={(e)=> e.target.checked ? getSession("admin") : getSession }/>
+                                   <input id="is-admin" type="checkbox" onChange={checked}/>
                                    <label htmlFor="is-admin">Men adminman</label>
                               </Field>
 
@@ -220,4 +253,4 @@ const Login = () => {
      </Page>
 }
 
-export default Login
+export default Login     

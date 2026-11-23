@@ -62,7 +62,7 @@ export const PRICES = [
           months: 6, // necha oy amal qiladi (bir kunlik uchun null)
           name: "6 oylik",
           note: "Olti oy uchun",
-          price: null,
+          price: "1 300 000",
           includes: [EQUIPMENT_ACCESS, VISITS],
      },
      {
@@ -70,7 +70,7 @@ export const PRICES = [
           months: 12, // necha oy amal qiladi (bir kunlik uchun null)
           name: "1 yillik",
           note: "Bir yil uchun",
-          price: null,
+          price: "2 500 000",
           includes: [EQUIPMENT_ACCESS, VISITS],
      },
 ]

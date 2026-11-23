@@ -1,11 +1,12 @@
-import { useEffect, useRef } from "react"
-import { Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutlet } from "react-router-dom"
+import { Suspense, useEffect, useRef } from "react"
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import Navbar from "../components/Navbar"
 import Data from "../utils/navbar"
 import Login from "../components/Login"
-import Dashboard from "../components/Dashboard"
+import Sidebar from "../components/Sidebar"
+import { Content, Main, Shell } from "../components/Sidebar/style"
 import PrivateRoutes from "./privateRoutes"
-import sidebar from "../utils/sidebar"
+import sidebar, { AREAS } from "../utils/sidebar"
 
 // Sahifa almashganda tepaga qaytaradi. Manzilda #bo'lim bo'lsa (masalan /home#narxlar),
 // boshqa sahifadan kelganda ham o'sha bo'limga olib boradi. Bir sahifa ichidagi #havolalarni
@@ -33,29 +34,38 @@ const PublicLayout = () => <>
      <Outlet />
 </>
 
+// Ichki tizim karkasi (admin va mijoz uchun bitta): chapda Sidebar, o'ngda tanlangan bo'lim (Outlet).
+// Public Navbar bu yerda chiqmaydi. Foydalanuvchi Outlet context orqali bo'limlarga uzatiladi.
+// Sahifalar lazy yuklanadi, shuning uchun Suspense kerak.
 const DashboardLayout = () => {
      const user = JSON.parse(localStorage.getItem("userData"))   // keyin contextdan olasiz
      const { pathname } = useLocation()
      const navigate = useNavigate()
-     const outlet = useOutlet()
 
      const items = sidebar.filter(i => i.roles.includes(user.role))
      const active = items.find(i => i.path === pathname)
+     const isCustomer = user.role === "customer"
 
-     return <Dashboard
-          user={user}
-          items={items}
-          activeId={active?.id}
-          onSelect={(id) => navigate(items.find(i => i.id === id).path)}
-          onLogout={() => { localStorage.removeItem("userData"); navigate("/login") }}
-     >
-          {outlet}
-     </Dashboard>
+     return <Shell>
+          <Sidebar
+               user={user}
+               items={items}
+               activeId={active?.id}
+               isCustomer={isCustomer}
+               onSelect={(id) => navigate(items.find(i => i.id === id).path)}
+               onLogout={() => { localStorage.removeItem("userData"); navigate("/login") }}
+          />
+          <Main>
+               <Content $narrow={isCustomer}>
+                    <Suspense fallback={null}>
+                         <Outlet context={{ user }} />
+                    </Suspense>
+               </Content>
+          </Main>
+     </Shell>
 }
 
 const Root = () => {
-     // TODO: ichki tizim (dashboard) tayyor bo'lgach, token bor foydalanuvchini
-     // shu yerda /dashboard ga yo'naltiramiz va PrivateRoutes bilan himoyalaymiz.
      return <Routes>
           <Route element={<PublicLayout />}>
                <Route path="/" element={<Navigate to="/home" replace />} />
@@ -64,11 +74,15 @@ const Root = () => {
                ))}
           </Route>
 
-          <Route path="/dashboard" element={<PrivateRoutes><DashboardLayout /></PrivateRoutes>}>
-               {sidebar.filter(i => i.element).map(({ path, element: Element }) => (
-                    <Route key={path} path={path} element={<Element />} />
-               ))}
-          </Route>
+          {/* Ichki tizim: har tomon o'z manzil prefiksi va o'z role guardiga ega */}
+          {Object.keys(AREAS).map((area) => (
+               <Route key={area} path={`/${area}`} element={<PrivateRoutes area={area}><DashboardLayout /></PrivateRoutes>}>
+                    <Route index element={<Navigate to={`/${area}/dashboard`} replace />} />
+                    {sidebar.filter(i => i.area === area && i.element).map(({ path, element: Element }) => (
+                         <Route key={path} path={path} element={<Element />} />
+                    ))}
+               </Route>
+          ))}
 
           <Route path="/login" element={<Login />} />
 
