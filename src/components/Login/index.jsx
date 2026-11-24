@@ -6,6 +6,9 @@ import { INSTAGRAM, PHONE, PHONE_VIEW } from "../../utils/gym"
 import api, { adminApi } from "../../axios"
 import { useNavigate } from "react-router-dom"
 import { homeOf } from "../../utils/sidebar"
+import { NotificationData } from "../../context/notifications"
+import { AdminData } from "../../context/admins"
+import { ClientData } from "../../context/clients"
 
 // Foydalanuvchi o'zi akkaunt ocha olmaydi: hisobni zal administratori ochadi.
 // Shu sababli sahifada ro'yxatdan o'tish yo'q, uning o'rniga "Akkaunt yo'qmi?" tushuntirishi turadi.
@@ -49,40 +52,42 @@ const Login = () => {
      const repeatRef = useRef(null)
      
      
-     const [data, setData] = useState([])
+     // So'rov holatlari (pending, success, error) NotificationData contextida: ekranda antd message bo'lib chiqadi.
+     const [notification, dispatch] = NotificationData()
+     // Kirgan foydalanuvchi o'z tomonining contextiga yoziladi (admin yoki mijoz)
+     const [, adminDispatch] = AdminData()
+     const [, clientDispatch] = ClientData()
+     const listRef = useRef(Promise.resolve([])) // hozirgi foydalanuvchilar ro'yxati so'rovi: tayyor bo'lganda massiv beradi
      const [pending, setPending] = useState(null) // parolni almashtirishni kutayotgan foydalanuvchi: { user, zone }
-     const [loading, setLoading] = useState(false)
+     const [checking, setChecking] = useState(false) // kiritilgan login va parol tekshirilmoqda (tugmada "Kirilmoqda...")
      const [error, setError] = useState("")
      const [isAdmin, setIsAdmin] = useState("")
      const navigate = useNavigate()
+     const saving = notification?.status === "pending" && notification.method === "PUT" // yangi parol saqlanmoqda
      
-     // Ro'yxat har safar "Men adminman" almashganda qayta yuklanadi. Eski so'rov kech kelib, yangisining
-     // ustidan yozib yubormasligi uchun cleanup da "bekor qilindi" belgisi qo'yiladi.
+     // Ro'yxat har safar "Men adminman" almashganda qayta yuklanadi (GET_pending, keyin GET_success yoki GET_error).
+     // Eski so'rov kech kelib, yangisining ustidan yozib yubormasligi uchun cleanup da "bekor qilindi" belgisi qo'yiladi.
+     // Ro'yxat promise ko'rinishida listRef da turadi: foydalanuvchi yuklanish tugamasdan "Kirish" bossa, tekshiruv kutib turadi.
      useEffect(() => {
           let cancelled = false
+          const entity = "Foydalanuvchilar"
 
-          async function getSession() {
-               // Yuklanguncha tugma o'chiq turadi va eski ro'yxat tozalanadi: boshqa tomonning ro'yxati bilan
-               // solishtirib "login noto'g'ri" deb chiqib qolmasligi uchun
-               setLoading(true)
-               setData([])
-               setError("")
-               try {
-                    const response = await api.get(isAdmin === "admin" ? `${adminApi}/admins`: "/register")
-                    if (!cancelled) setData(response.data)
-               } catch (err) {
-                    if (!cancelled) setError("Serverga ulanib bo'lmadi. Sahifani yangilab ko'ring.")
-                    console.log(err.message)
-               } finally {
-                    if (!cancelled) setLoading(false)
-               }
-          }
+          dispatch({ type: "GET_pending", payload: { entity } })
+          listRef.current = api.get(isAdmin === "admin" ? `${adminApi}/admins` : "/register")
+               .then((response) => {
+                    if (!cancelled) dispatch({ type: "GET_success", payload: { entity } })
+                    return response.data
+               })
+               .catch((err) => {
+                    if (!cancelled) dispatch({ type: "GET_error", payload: { entity, error: err } })
+                    return []
+               })
 
-          getSession()
           return () => { cancelled = true }
-     }, [isAdmin]);
+     }, [isAdmin, dispatch]);
 
      function checked(e){
+          setError("")
           setIsAdmin(e.target.checked ? "admin" : "customer")
      }
 
@@ -96,13 +101,33 @@ const Login = () => {
           if (user.code) saved.code = user.code
           
           localStorage.setItem("userData", JSON.stringify(saved)) // avval saqlaymiz, keyin o'tamiz
+          // Context va localStorage bir xil: sahifa yangilansa context bo'shaydi, DashboardLayout uni localStorage dan tiklaydi
+          ;(role === "customer" ? clientDispatch : adminDispatch)({ type: "LOGIN", payload: { user: saved } })
+          ;(role === "customer" ? adminDispatch : clientDispatch)({ type: "LOGOUT" }) // boshqa tomonda qolgan eski foydalanuvchi bo'lmasin
           navigate(homeOf(role), { replace: true })
      }
 
-     function getFilterUSer(e) {
+     async function getFilterUSer(e) {
           e.preventDefault()
-          if (loading) return
+          if (checking) return
           setError("")
+          setChecking(true)
+
+          try {
+               await check()
+          } finally {
+               setChecking(false)
+          }
+     }
+
+     // Kiritilgan qiymatlarni tekshiradi. Ro'yxat hali yuklanayotgan bo'lsa shuni kutadi (shu payt tugma "Kirilmoqda...").
+     async function check() {
+          // Kutish paytida "Men adminman" almashsa ro'yxat o'zgaradi: yangisini ham kutamiz
+          let request, data
+          do {
+               request = listRef.current
+               data = await request
+          } while (request !== listRef.current)
 
           // Ro'yxat kelmagan bo'lsa (server xatosi) "login noto'g'ri" demaymiz: sabab boshqa
           if (!data.length) {
@@ -159,16 +184,15 @@ const Login = () => {
           }
 
 
-          if (loading) return // ikki marta bosib yuborilsa ikkinchi so'rov ketmasin
-          setLoading(true)
+          if (saving) return // ikki marta bosib yuborilsa ikkinchi so'rov ketmasin
+          const entity = "Parol"
+          dispatch({ type: "PUT_pending", payload: { entity } })
           try {
                await api.put(isAdmin === "admin" ? `${adminApi}/admins/${pending.user.id}` :`/register/${pending.user.id}`, { "must_change_password": false, "password_hash": password })
+               dispatch({ type: "PUT_success", payload: { entity } })
                finish({ ...pending.user, must_change_password: false })
           } catch (error) {
-               setError("Serverga ulanib bo'lmadi. Keyinroq urinib ko'ring.")
-               console.log(error.message);
-          } finally {
-               setLoading(false)
+               dispatch({ type: "PUT_error", payload: { entity, error } })
           }
      }
 
@@ -191,7 +215,7 @@ const Login = () => {
                                    <label htmlFor="repeat-password">Parolni takrorlang</label>
                                    <Input id="repeat-password" ref={repeatRef} type="password" autoComplete="new-password" required />
                               </Field>
-                              <Submit type="submit" disabled={loading}>{loading ? "Saqlanmoqda..." : "Parolni saqlash"}</Submit>
+                              <Submit type="submit" disabled={saving}>{saving ? "Saqlanmoqda..." : "Parolni saqlash"}</Submit>
                               {error && <Notice role="alert" $tone="error">{error}</Notice>}
                          </Form>
                     </> : <>
@@ -212,7 +236,7 @@ const Login = () => {
                                    <label htmlFor="is-admin">Men adminman</label>
                               </Field>
 
-                              <Submit type="submit" disabled={loading}>{loading ? "Kirilmoqda..." : "Kirish"}</Submit>
+                              <Submit type="submit" disabled={checking}>{checking ? "Kirilmoqda..." : "Kirish"}</Submit>
                               {error && <Notice role="alert" $tone="error">{error}</Notice>}
                          </Form>
                     </>}
@@ -253,4 +277,4 @@ const Login = () => {
      </Page>
 }
 
-export default Login     
+export default Login

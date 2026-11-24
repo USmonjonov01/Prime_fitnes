@@ -5,15 +5,21 @@ import Root from './root'
 import { BrowserRouter } from 'react-router-dom'
 import NotificationContext from './context/notifications'
 import MessageContext from './context/messages'
+import AdminContext from './context/admins'
+import ClientContext from './context/clients'
 
 createRoot(document.getElementById('root')).render(
   <>
     <BrowserRouter>
-      <NotificationContext>
-        <MessageContext>
-          <Root />
-        </MessageContext>
-      </NotificationContext>
+      <AdminContext>
+        <ClientContext>
+          <NotificationContext>
+            <MessageContext>
+              <Root />
+            </MessageContext>
+          </NotificationContext>
+        </ClientContext>
+      </AdminContext>
     </BrowserRouter>
   </>,
 )

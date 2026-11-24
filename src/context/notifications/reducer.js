@@ -4,7 +4,7 @@
    STATE (null yoki):
      {
        id:      son, har yangi bildirishnomada 1 ga oshadi (bir xil matn ketma-ket kelsa ham interfeys yangilanadi)
-       status:  "success" | "error"
+       status:  "pending" | "success" | "error"   pending: so'rov ketdi, javob kutilmoqda
        method:  "GET" | "POST" | "PUT" | "DELETE" | "NETWORK"
        message: foydalanuvchiga ko'rsatiladigan matn
        code:    xato sababi (faqat error): "network" | "timeout" | "validation" | "unauthorized" | "forbidden"
@@ -12,13 +12,14 @@
      }
 
    ACTION:
-     { type: "<METHOD>_success" | "<METHOD>_error" | "CLEAR", payload?: { entity?, error? } }
+     { type: "<METHOD>_pending" | "<METHOD>_success" | "<METHOD>_error" | "CLEAR", payload?: { entity?, error? } }
        METHOD  GET | POST | PUT | DELETE        (tahrirlash uchun PUT, eski "EDIT" emas)
        entity  nima ustida amal bajarildi, bosh harf bilan: "Mijoz", "Abonement", "Chiqim".
                Berilmasa "Ma'lumotlar" deyiladi.
        error   axios xatosi: status va sabab reducerning o'zida aniqlanadi (so'rov joyida tahlil qilish shart emas)
 
    Ishlatilishi:
+     dispatch({ type: "POST_pending", payload: { entity: "Mijoz" } })   // so'rov ketishidan oldin
      dispatch({ type: "POST_success", payload: { entity: "Mijoz" } })
      dispatch({ type: "POST_error", payload: { entity: "Mijoz", error: err } })
      dispatch({ type: "CLEAR" })                       // bildirishnomani yopish
@@ -27,6 +28,14 @@
 ------------------------------------------------------------------------------------------ */
 
 const METHODS = ["GET", "POST", "PUT", "DELETE"]
+
+// Kutish: "<Nima> <fe'l>...". Javob kelgach shu bildirishnoma success yoki error bilan almashadi.
+const PENDING_VERB = {
+     GET: "yuklanmoqda",
+     POST: "saqlanmoqda",
+     PUT: "yangilanmoqda",
+     DELETE: "o'chirilmoqda",
+}
 
 // Muvaffaqiyat: "<Nima> muvaffaqiyatli <fe'l>!". GET da odatda bildirishnoma ko'rsatilmaydi, lekin kerak bo'lsa matn tayyor.
 const SUCCESS_VERB = {
@@ -75,6 +84,9 @@ const reasonOf = (error) => {
      return "unknown"
 }
 
+// "Mijoz" + "saqlanmoqda" -> "Mijoz saqlanmoqda...", entity bo'lmasa "Ma'lumotlar ..."
+const pendingMessage = (method, entity = "Ma'lumotlar") => `${entity} ${PENDING_VERB[method]}...`
+
 // "Mijoz" + "saqlandi" -> "Mijoz muvaffaqiyatli saqlandi!", entity bo'lmasa "Ma'lumotlar ..."
 const successMessage = (method, entity = "Ma'lumotlar") => `${entity} muvaffaqiyatli ${SUCCESS_VERB[method]}!`
 
@@ -88,9 +100,13 @@ export const reducer = (state, { type, payload = {} }) => {
      if (type === "CLEAR") return null
 
      const [method, status] = String(type).split("_")
-     if (!METHODS.includes(method) || (status !== "success" && status !== "error")) return state // noma'lum action: holat o'zgarmaydi
+     if (!METHODS.includes(method) || (status !== "pending" && status !== "success" && status !== "error")) return state // noma'lum action: holat o'zgarmaydi
 
      const id = (state?.id ?? 0) + 1
+
+     if (status === "pending") {
+          return { id, status, method, message: pendingMessage(method, payload.entity) }
+     }
 
      if (status === "success") {
           return { id, status, method, message: successMessage(method, payload.entity) }

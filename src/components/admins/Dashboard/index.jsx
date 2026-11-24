@@ -9,13 +9,17 @@ import {
 } from "./style"
 import { PRICES } from "../../../utils/gym"
 import { colors, layout } from "../../../utils/theme"
+import { NotificationData } from "../../../context/notifications"
+import { MessageData } from "../../../context/messages"
+import { message } from "../../../context/messages/reducer"
+import { AdminData } from "../../../context/admins"
 
 /* ------------------------------------------------------------------------------------------
    ADMINS / DASHBOARD: xodim (staff) va zal egasi (owner) bosh paneli. Faqat mazmun: karkas va yon menyu
    bu yerda YO'Q (karkas root/index.jsx dagi DashboardLayout da, menyu components/Sidebar da).
    Ma'lumot olish va context ham yo'q, hammasi props orqali keladi.
 
-   Foydalanuvchi props orqali berilmasa, DashboardLayout ning <Outlet context> idan olinadi.
+   Foydalanuvchi va data props orqali berilmasa, DashboardLayout ning <Outlet context> idan olinadi (u context/admins dan keladi).
 
    Props:
      user                   { full_name, role }  role: "staff" | "owner"
@@ -23,11 +27,23 @@ import { colors, layout } from "../../../utils/theme"
                               visits: [{ id, name, code, time }], expiring: [{ id, name, plan, note }],
                               cashflow: [{ label, income, expense }] }   cashflow: oylar bo'yicha, so'mda (faqat "owner" ko'radi)
                             Berilmasa NAMUNA ma'lumot va izoh chiqadi
-     onCheckIn(code)        kod kiritilib "Belgilash" bosilganda (Enter yoki QR skaner ham)
-     checkInResult          { tone: "ok" | "error", message } oxirgi tekshiruv natijasi
-     onAction(id, values)   modaldagi forma saqlanganda:
+     onCheckIn(code)        kod kiritilib "Belgilash" bosilganda (Enter yoki QR skaner ham). So'rovni o'zingiz yozasiz:
+                            async funksiya, muvaffaqiyatda { client: { id, full_name, code }, visitsLeft?, method?: "qr" | "code" }
+                            qaytaradi. Biznes rad etsa (topilmadi, muddati tugagan...) { reason, client? } li xato tashlaydi:
+                              reason: "not_found" | "expired" | "finished" | "blocked"
+                            Boshqa xato (internet, server) oddiy axios xatosi bo'lib qoladi.
+     checkInResult          { tone: "ok" | "error", message } oxirgi tekshiruv natijasi. Berilmasa context/admins dan olinadi
+     onAction(id, values)   modaldagi forma saqlanganda. Bu ham async funksiya (so'rov sizniki):
                               "add-customer"  values: { full_name, phone_number }
+                                              qaytaradi: { client: { id, full_name, code } }
                               "sell"          values: { code, plan_id, price }
+                                              qaytaradi: { client?, visitTotal?, endDate? }
+
+   Bildirishnomalar shu faylning o'zida ulangan, so'rov kodini yozmaysiz:
+     - saqlash natijasi: context/notifications (POST_pending, POST_success, POST_error), ekranda antd message
+     - voqea xabarlari: context/messages (CUSTOMER_ADDED, SUBSCRIPTION_SOLD, CHECK_IN, CHECK_IN_DENIED)
+     - kirishni belgilash natijasi: context/admins (SET_CHECK_IN_RESULT)
+     onCheckIn/onAction berilmasa (hozirgidek) hech narsa yuborilmaydi va hech qanday bildirishnoma chiqmaydi.
 ------------------------------------------------------------------------------------------ */
 
 const ICONS = {
@@ -352,17 +368,73 @@ const AdminOverview = ({ isOwner, data, isSample, onCheckIn, checkInResult, onAc
 
 /* ------------------------------ Dashboard ------------------------------ */
 
+// Biznes rad etishining foydalanuvchiga ko'rinadigan matni (kirishni belgilash oynasida)
+const DENIED_TEXT = {
+     not_found: "Bu kod bo'yicha mijoz topilmadi. Kodni tekshiring.",
+     expired: "Abonement muddati tugagan.",
+     finished: "Abonement tashriflari tugagan.",
+     blocked: "Mijoz bloklangan.",
+}
+
 const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction }) => {
      const outlet = useOutletContext()
+     const [, notify] = NotificationData()
+     const [, send] = MessageData()
+     const [, adminDispatch] = AdminData()
      const user = userProp ?? outlet?.user
+     const shown = data ?? outlet?.data // props bo'lmasa context/admins dagi ma'lumot, u ham bo'lmasa namuna
+
+     // Modal formalari: so'rov (onAction) sizniki, bu yerda faqat natija ko'rsatiladi va xabar yuboriladi
+     const runAction = async (id, values) => {
+          if (!onAction) return
+          const sell = id === "sell"
+          const entity = sell ? "Abonement" : "Mijoz"
+
+          notify({ type: "POST_pending", payload: { entity } })
+          try {
+               const result = await onAction(id, values)
+               notify({ type: "POST_success", payload: { entity } })
+
+               if (sell) {
+                    send(message("SUBSCRIPTION_SOLD", {
+                         client: result?.client ?? { code: values.code },
+                         plan: PRICES.find((p) => p.id === values.plan_id)?.name,
+                         price: values.price,
+                         visitTotal: result?.visitTotal,
+                         endDate: result?.endDate,
+                    }))
+               } else {
+                    send(message("CUSTOMER_ADDED", { client: result?.client ?? { full_name: values.full_name } }))
+               }
+          } catch (error) {
+               notify({ type: "POST_error", payload: { entity, error } })
+          }
+     }
+
+     const runCheckIn = async (code) => {
+          if (!onCheckIn) return
+          try {
+               const result = await onCheckIn(code)
+               const left = Number.isFinite(result?.visitsLeft) ? `. Qolgan tashriflar: ${result.visitsLeft}` : ""
+               adminDispatch({ type: "SET_CHECK_IN_RESULT", payload: { tone: "ok", message: `${result?.client?.full_name ?? "Mijoz"} belgilandi${left}` } })
+               send(message("CHECK_IN", { client: result?.client, method: result?.method, visitsLeft: result?.visitsLeft }))
+          } catch (error) {
+               if (error?.reason) { // zal qoidasi bo'yicha rad etildi: xato emas, aniq sabab bor
+                    adminDispatch({ type: "SET_CHECK_IN_RESULT", payload: { tone: "error", message: DENIED_TEXT[error.reason] ?? "Kirishga ruxsat berilmadi." } })
+                    send(message("CHECK_IN_DENIED", { client: error.client, code, reason: error.reason }))
+               } else {
+                    notify({ type: "POST_error", payload: { entity: "Kirish", error } })
+               }
+          }
+     }
 
      return <AdminOverview
           isOwner={user?.role === "owner"}
-          data={data ?? SAMPLE_ADMIN}
-          isSample={!data}
-          onCheckIn={onCheckIn}
-          checkInResult={checkInResult}
-          onAction={onAction}
+          data={shown ?? SAMPLE_ADMIN}
+          isSample={!shown}
+          onCheckIn={runCheckIn}
+          checkInResult={checkInResult ?? outlet?.checkInResult}
+          onAction={runAction}
      />
 }
 

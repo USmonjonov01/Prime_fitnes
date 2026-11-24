@@ -49,6 +49,20 @@ export const display = css`
      line-height: 0.98;
 `
 
+// antd (bildirishnomalar) uchun tokenlar: brend ranglari. Qorong'i rejim main.jsx da yoqiladi.
+export const antdTokens = {
+     colorPrimary: colors.electric,
+     colorInfo: colors.neon,
+     colorSuccess: colors.ok,
+     colorWarning: colors.warn,
+     colorError: colors.danger,
+     colorBgElevated: colors.deep,
+     colorText: colors.floor,
+     colorTextBase: colors.floor,
+     borderRadius: 6,
+     fontFamily: fonts.body,
+}
+
 export const layout = {
      navHeight: "72px",
      maxWidth: "1240px",

@@ -10,7 +10,7 @@ import { PHONE, PHONE_VIEW } from "../../../utils/gym"
    (karkas root/index.jsx dagi DashboardLayout da, menyu components/Sidebar da).
    Ma'lumot olish va context ham yo'q, hammasi props orqali keladi.
 
-   Foydalanuvchi props orqali berilmasa, DashboardLayout ning <Outlet context> idan olinadi.
+   Foydalanuvchi va data props orqali berilmasa, DashboardLayout ning <Outlet context> idan olinadi (u context/clients dan keladi).
 
    Props:
      user    { full_name, code? }
@@ -126,8 +126,9 @@ const ClientOverview = ({ user, data, isSample }) => {
 const Dashboard = ({ user: userProp, data }) => {
      const outlet = useOutletContext()
      const user = userProp ?? outlet?.user
+     const shown = data ?? outlet?.data // props bo'lmasa context/clients dagi ma'lumot, u ham bo'lmasa namuna
 
-     return <ClientOverview user={user} data={data ?? SAMPLE_CLIENT} isSample={!data} />
+     return <ClientOverview user={user} data={shown ?? SAMPLE_CLIENT} isSample={!shown} />
 }
 
 export default Dashboard

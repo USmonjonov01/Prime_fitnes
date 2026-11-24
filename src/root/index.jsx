@@ -7,6 +7,8 @@ import Sidebar from "../components/Sidebar"
 import { Content, Main, Shell } from "../components/Sidebar/style"
 import PrivateRoutes from "./privateRoutes"
 import sidebar, { AREAS } from "../utils/sidebar"
+import { AdminData } from "../context/admins"
+import { ClientData } from "../context/clients"
 
 // Sahifa almashganda tepaga qaytaradi. Manzilda #bo'lim bo'lsa (masalan /home#narxlar),
 // boshqa sahifadan kelganda ham o'sha bo'limga olib boradi. Bir sahifa ichidagi #havolalarni
@@ -37,14 +39,37 @@ const PublicLayout = () => <>
 // Ichki tizim karkasi (admin va mijoz uchun bitta): chapda Sidebar, o'ngda tanlangan bo'lim (Outlet).
 // Public Navbar bu yerda chiqmaydi. Foydalanuvchi Outlet context orqali bo'limlarga uzatiladi.
 // Sahifalar lazy yuklanadi, shuning uchun Suspense kerak.
+const readStored = () => {
+     try {
+          return JSON.parse(localStorage.getItem("userData"))
+     } catch {
+          return null
+     }
+}
+
 const DashboardLayout = () => {
-     const user = JSON.parse(localStorage.getItem("userData"))   // keyin contextdan olasiz
+     // Foydalanuvchi o'z tomonining contextidan olinadi. Sahifa yangilanganda context bo'sh bo'ladi,
+     // shunda localStorage dagi userData dan tiklanadi (PrivateRoutes shu yozuvni tekshiradi).
+     const [admin, adminDispatch] = AdminData()
+     const [client, clientDispatch] = ClientData()
      const { pathname } = useLocation()
      const navigate = useNavigate()
 
+     const stored = readStored()
+     const isCustomer = stored?.role === "customer"
+     const side = isCustomer ? client : admin
+     const dispatch = isCustomer ? clientDispatch : adminDispatch
+     const user = side?.user ?? stored
+
+     useEffect(() => {
+          if (stored && !side?.user) dispatch({ type: "LOGIN", payload: { user: stored } })
+     }, [side?.user])   // eslint-disable-line react-hooks/exhaustive-deps
+
+     // Chiqishdan keyin /login ga o'tish tugaguncha bir lahza foydalanuvchi yo'q: xato bermasdan bo'sh qoladi
+     if (!user) return null
+
      const items = sidebar.filter(i => i.roles.includes(user.role))
      const active = items.find(i => i.path === pathname)
-     const isCustomer = user.role === "customer"
 
      return <Shell>
           <Sidebar
@@ -53,12 +78,17 @@ const DashboardLayout = () => {
                activeId={active?.id}
                isCustomer={isCustomer}
                onSelect={(id) => navigate(items.find(i => i.id === id).path)}
-               onLogout={() => { localStorage.removeItem("userData"); navigate("/login") }}
+               onLogout={() => {
+                    adminDispatch({ type: "LOGOUT" })
+                    clientDispatch({ type: "LOGOUT" })
+                    localStorage.removeItem("userData")
+                    navigate("/login")
+               }}
           />
           <Main>
                <Content $narrow={isCustomer}>
                     <Suspense fallback={null}>
-                         <Outlet context={{ user }} />
+                         <Outlet context={{ user, data: side?.data, checkInResult: side?.checkInResult }} />
                     </Suspense>
                </Content>
           </Main>
