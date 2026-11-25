@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import Navbar from "../components/Navbar"
 import Data from "../utils/navbar"
@@ -9,6 +9,7 @@ import PrivateRoutes from "./privateRoutes"
 import sidebar, { AREAS } from "../utils/sidebar"
 import { AdminData } from "../context/admins"
 import { ClientData } from "../context/clients"
+import api, { getAccessToken, refreshSession, setAccessToken } from "../axios"
 
 // Sahifa almashganda tepaga qaytaradi. Manzilda #bo'lim bo'lsa (masalan /home#narxlar),
 // boshqa sahifadan kelganda ham o'sha bo'limga olib boradi. Bir sahifa ichidagi #havolalarni
@@ -65,8 +66,21 @@ const DashboardLayout = () => {
           if (stored && !side?.user) dispatch({ type: "LOGIN", payload: { user: stored } })
      }, [side?.user])   // eslint-disable-line react-hooks/exhaustive-deps
 
+     // Access token xotirada turadi: sahifa yangilansa yo'qoladi. Cookie dagi refresh token bilan jimgina tiklanadi.
+     // Tiklanmasa (sessiya tugagan yoki akkaunt bloklangan) login sahifasiga o'tadi.
+     const [ready, setReady] = useState(Boolean(getAccessToken()))
+     useEffect(() => {
+          if (ready) return
+          refreshSession()
+               .then(() => setReady(true))
+               .catch(() => {
+                    localStorage.removeItem("userData")
+                    navigate("/login", { replace: true })
+               })
+     }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+
      // Chiqishdan keyin /login ga o'tish tugaguncha bir lahza foydalanuvchi yo'q: xato bermasdan bo'sh qoladi
-     if (!user) return null
+     if (!user || !ready) return null
 
      const items = sidebar.filter(i => i.roles.includes(user.role))
      const active = items.find(i => i.path === pathname)
@@ -78,7 +92,9 @@ const DashboardLayout = () => {
                activeId={active?.id}
                isCustomer={isCustomer}
                onSelect={(id) => navigate(items.find(i => i.id === id).path)}
-               onLogout={() => {
+               onLogout={async () => {
+                    try { await api.post("/auth/logout") } catch { /* server javob bermasa ham chiqamiz */ }
+                    setAccessToken(null)
                     adminDispatch({ type: "LOGOUT" })
                     clientDispatch({ type: "LOGOUT" })
                     localStorage.removeItem("userData")

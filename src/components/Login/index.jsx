@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import {
-     Cases, Contact, Field, Form, Grid, Info, InfoLead, InfoTitle, Input, Notice, Page, Secondary, Steps, Submit, Title,
+     Cases, Contact, Field, Form, Grid, Info, InfoLead, InfoTitle, Input, Notice, Page, Steps, Submit, Title,
 } from "./style"
 import { INSTAGRAM, PHONE, PHONE_VIEW } from "../../utils/gym"
-import api, { adminApi } from "../../axios"
+import api, { apiMessage, setAccessToken } from "../../axios"
 import { useNavigate } from "react-router-dom"
 import { homeOf } from "../../utils/sidebar"
 import { NotificationData } from "../../context/notifications"
@@ -32,17 +32,7 @@ const CASES = [
      { q: "Men xodimman yoki zal egasiman", a: "Xodim hisobini zal egasi ochadi. Hisobingiz bo'lmasa egasiga murojaat qiling." },
 ]
 
-const MIN_PASSWORD = 4
-
-// Raqam bo'lmagan hamma belgini olib tashlaydi: "+998 90 111-22-33" → "998901112233"
-const digits = (s) => String(s ?? "").replace(/\D/g, "")
-
-// Ikkala raqamning oxirgi 9 ta raqamini solishtiradi, shuning uchun yozilish usuli muhim emas
-const samePhone = (a, b) => {
-     const x = digits(a)
-     const y = digits(b)
-     return x.length >= 9 && y.length >= 9 && x.slice(-9) === y.slice(-9)
-}
+const MIN_PASSWORD = 6 // serverdagi qoida bilan bir xil
 
 const Login = () => {
      // Inputlar useRef bilan o'qiladi (forma maydonlari boshqarilmaydi)
@@ -50,120 +40,50 @@ const Login = () => {
      const passwordRef = useRef(null)
      const newPasswordRef = useRef(null)
      const repeatRef = useRef(null)
-     
-     
+
      // So'rov holatlari (pending, success, error) NotificationData contextida: ekranda antd message bo'lib chiqadi.
      const [notification, dispatch] = NotificationData()
      // Kirgan foydalanuvchi o'z tomonining contextiga yoziladi (admin yoki mijoz)
      const [, adminDispatch] = AdminData()
      const [, clientDispatch] = ClientData()
-     const listRef = useRef(Promise.resolve([])) // hozirgi foydalanuvchilar ro'yxati so'rovi: tayyor bo'lganda massiv beradi
-     const [pending, setPending] = useState(null) // parolni almashtirishni kutayotgan foydalanuvchi: { user, zone }
-     const [checking, setChecking] = useState(false) // kiritilgan login va parol tekshirilmoqda (tugmada "Kirilmoqda...")
+     const [pending, setPending] = useState(false) // vaqtinchalik parol bilan kirdi: yangi parol kutilmoqda
+     const [checking, setChecking] = useState(false) // login va parol tekshirilmoqda (tugmada "Kirilmoqda...")
      const [error, setError] = useState("")
-     const [isAdmin, setIsAdmin] = useState("")
      const navigate = useNavigate()
      const saving = notification?.status === "pending" && notification.method === "PUT" // yangi parol saqlanmoqda
-     
-     // Ro'yxat har safar "Men adminman" almashganda qayta yuklanadi (GET_pending, keyin GET_success yoki GET_error).
-     // Eski so'rov kech kelib, yangisining ustidan yozib yubormasligi uchun cleanup da "bekor qilindi" belgisi qo'yiladi.
-     // Ro'yxat promise ko'rinishida listRef da turadi: foydalanuvchi yuklanish tugamasdan "Kirish" bossa, tekshiruv kutib turadi.
-     useEffect(() => {
-          let cancelled = false
-          const entity = "Foydalanuvchilar"
 
-          dispatch({ type: "GET_pending", payload: { entity } })
-          listRef.current = api.get(isAdmin === "admin" ? `${adminApi}/admins` : "/register")
-               .then((response) => {
-                    if (!cancelled) dispatch({ type: "GET_success", payload: { entity } })
-                    return response.data
-               })
-               .catch((err) => {
-                    if (!cancelled) dispatch({ type: "GET_error", payload: { entity, error: err } })
-                    return []
-               })
-
-          return () => { cancelled = true }
-     }, [isAdmin, dispatch]);
-
-     function checked(e){
-          setError("")
-          setIsAdmin(e.target.checked ? "admin" : "customer")
-     }
-
+     // Server tasdiqlagan foydalanuvchi: rol serverdan keladi (admin yoki mijoz belgisi endi kerak emas)
      function finish(user) {
-          // "Men adminman" belgilanmagan bo'lsa mijoz. Belgilangan bo'lsa admin: roli adminlar yozuvidan olinadi,
-          // noma'lum bo'lsa eng past huquq (staff) beriladi.
-          const role = isAdmin === "admin" ? (["staff", "owner"].includes(user.role) ? user.role : "staff") : "customer"
-
-          // Brauzerga faqat kerakli maydonlar yoziladi. Parol (password_hash) va ichki maydonlar yozilmaydi.
-          const saved = { id: user.id, full_name: user.full_name, phone_number: user.phone_number, role }
+          // Brauzerga faqat interfeys uchun kerakli maydonlar yoziladi. Haqiqiy himoya serverda (token orqali).
+          const saved = { id: user.id, full_name: user.full_name, phone_number: user.phone_number, role: user.role }
           if (user.code) saved.code = user.code
-          
+
           localStorage.setItem("userData", JSON.stringify(saved)) // avval saqlaymiz, keyin o'tamiz
           // Context va localStorage bir xil: sahifa yangilansa context bo'shaydi, DashboardLayout uni localStorage dan tiklaydi
-          ;(role === "customer" ? clientDispatch : adminDispatch)({ type: "LOGIN", payload: { user: saved } })
-          ;(role === "customer" ? adminDispatch : clientDispatch)({ type: "LOGOUT" }) // boshqa tomonda qolgan eski foydalanuvchi bo'lmasin
-          navigate(homeOf(role), { replace: true })
+          ;(user.role === "customer" ? clientDispatch : adminDispatch)({ type: "LOGIN", payload: { user: saved } })
+          ;(user.role === "customer" ? adminDispatch : clientDispatch)({ type: "LOGOUT" }) // boshqa tomonda qolgan eski foydalanuvchi bo'lmasin
+          navigate(homeOf(user.role), { replace: true })
      }
 
-     async function getFilterUSer(e) {
+     async function handleLogin(e) {
           e.preventDefault()
           if (checking) return
           setError("")
           setChecking(true)
 
           try {
-               await check()
+               const { data } = await api.post("/auth/login", {
+                    login: loginRef.current.value.trim(),
+                    password: passwordRef.current.value.trim(),
+               })
+               setAccessToken(data.access_token)
+               if (data.user.must_change_password) setPending(true)
+               else finish(data.user)
+          } catch (err) {
+               setError(apiMessage(err, "Kirib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring."))
           } finally {
                setChecking(false)
           }
-     }
-
-     // Kiritilgan qiymatlarni tekshiradi. Ro'yxat hali yuklanayotgan bo'lsa shuni kutadi (shu payt tugma "Kirilmoqda...").
-     async function check() {
-          // Kutish paytida "Men adminman" almashsa ro'yxat o'zgaradi: yangisini ham kutamiz
-          let request, data
-          do {
-               request = listRef.current
-               data = await request
-          } while (request !== listRef.current)
-
-          // Ro'yxat kelmagan bo'lsa (server xatosi) "login noto'g'ri" demaymiz: sabab boshqa
-          if (!data.length) {
-               setError("Foydalanuvchilar ro'yxati yuklanmadi. Sahifani yangilab ko'ring.")
-               return
-          }
-
-          const login = loginRef.current.value.trim()
-          const password = passwordRef.current.value.trim()
-
-          // 9 ta va undan ko'p raqam bo'lsa telefon, aks holda kartadagi kod deb olinadi
-          const isPhone = digits(login).length >= 9
-
-          // Parol: yangi parol saqlangan bo'lsa (password_hash) faqat o'sha, hali saqlanmagan bo'lsa kartadagi kod.
-          // Shunda parol almashgach eski kod endi kirmaydi. Bo'sh parol hech qachon mos kelmaydi.
-          // vaqtinchalik sinov usuli, keyin password_hash tekshiruvi backendga o'tadi
-          const secretOf = (obj) => String(obj.password_hash || obj.code || "")
-
-          const user = data.find((obj) =>
-               (isPhone ? samePhone(obj.phone_number, login) : obj.code != null && String(obj.code) === login)
-               && secretOf(obj) !== "" && secretOf(obj) === password
-          )
-
-          if (!user) {
-               setError("Login yoki parol noto'g'ri")
-               return
-          }
-          if (user.status !== "active") {
-               setError("Hisobingiz faol emas. Administratorga murojaat qiling.")
-               return
-          }
-          if (user.must_change_password) {
-               setPending({ user })
-               return
-          }
-          finish(user)
      }
 
      async function handleNewPassword(e) {
@@ -183,21 +103,19 @@ const Login = () => {
                return
           }
 
-
           if (saving) return // ikki marta bosib yuborilsa ikkinchi so'rov ketmasin
           const entity = "Parol"
           dispatch({ type: "PUT_pending", payload: { entity } })
           try {
-               await api.put(isAdmin === "admin" ? `${adminApi}/admins/${pending.user.id}` :`/register/${pending.user.id}`, { "must_change_password": false, "password_hash": password })
+               const { data } = await api.post("/auth/change-password", { new_password: password })
+               setAccessToken(data.access_token)
                dispatch({ type: "PUT_success", payload: { entity } })
-               finish({ ...pending.user, must_change_password: false })
-          } catch (error) {
-               dispatch({ type: "PUT_error", payload: { entity, error } })
+               finish(data.user)
+          } catch (err) {
+               dispatch({ type: "PUT_error", payload: { entity, error: err } })
+               setError(apiMessage(err, ""))
           }
      }
-
-
-
 
      return <Page>
           <Grid>
@@ -220,7 +138,7 @@ const Login = () => {
                          </Form>
                     </> : <>
                          <Title id="login-title">Kirish</Title>
-                         <Form onSubmit={getFilterUSer}>
+                         <Form onSubmit={handleLogin}>
                               <Field>
                                    <label htmlFor="login">Login</label>
                                    <Input id="login" ref={loginRef} type="text" autoComplete="username" required />
@@ -229,11 +147,6 @@ const Login = () => {
                               <Field>
                                    <label htmlFor="password">Parol</label>
                                    <Input id="password" ref={passwordRef} type="password" autoComplete="current-password" required />
-                              </Field>
-
-                              <Field $prop="checkbox">
-                                   <input id="is-admin" type="checkbox" onChange={checked}/>
-                                   <label htmlFor="is-admin">Men adminman</label>
                               </Field>
 
                               <Submit type="submit" disabled={checking}>{checking ? "Kirilmoqda..." : "Kirish"}</Submit>

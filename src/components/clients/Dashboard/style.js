@@ -180,6 +180,12 @@ export const Empty = styled.section`
 export const EmptyLink = styled.a`
      justify-self: start;
      margin-top: 0.5rem;
+     padding: 0; /* <button as="..."> sifatida ham ishlatiladi ("Qayta yuklash"): brauzerning tugma ko'rinishi olib tashlanadi */
+     border: 0;
+     background: none;
+     color: inherit;
+     font: inherit;
+     cursor: pointer;
      font-weight: 700;
      text-decoration: underline;
      text-decoration-color: ${colors.neon};

@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useOutletContext } from "react-router-dom"
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import {
      ActionButton, Actions, CashHead, CashLegend, CashSummary, CashValue, ChartBox, CodeInput, Columns, Console, ConsoleForm, ConsoleHint,
      ConsoleLabel, ConsoleSubmit, DateText, Dialog, DialogActions, DialogCancel, DialogClose, DialogField, DialogForm, DialogHead,
      DialogInput, DialogPrice, DialogSelect, DialogSubmit, Empty, Figure, Figures, LegendItem,
-     List, ListItem, PageHead, PageTitle, Panel, PanelTitle, Pill, Result, SampleNote,
+     List, ListItem, PageHead, PageTitle, Panel, PanelTitle, Pill, Result,
 } from "./style"
 import { PRICES } from "../../../utils/gym"
 import { colors, layout } from "../../../utils/theme"
@@ -13,38 +13,7 @@ import { NotificationData } from "../../../context/notifications"
 import { MessageData } from "../../../context/messages"
 import { message } from "../../../context/messages/reducer"
 import { AdminData } from "../../../context/admins"
-
-/* ------------------------------------------------------------------------------------------
-   ADMINS / DASHBOARD: xodim (staff) va zal egasi (owner) bosh paneli. Faqat mazmun: karkas va yon menyu
-   bu yerda YO'Q (karkas root/index.jsx dagi DashboardLayout da, menyu components/Sidebar da).
-   Ma'lumot olish va context ham yo'q, hammasi props orqali keladi.
-
-   Foydalanuvchi va data props orqali berilmasa, DashboardLayout ning <Outlet context> idan olinadi (u context/admins dan keladi).
-
-   Props:
-     user                   { full_name, role }  role: "staff" | "owner"
-     data                   { stats: { visitsToday, activeMembers, expiringSoon, incomeToday },
-                              visits: [{ id, name, code, time }], expiring: [{ id, name, plan, note }],
-                              cashflow: [{ label, income, expense }] }   cashflow: oylar bo'yicha, so'mda (faqat "owner" ko'radi)
-                            Berilmasa NAMUNA ma'lumot va izoh chiqadi
-     onCheckIn(code)        kod kiritilib "Belgilash" bosilganda (Enter yoki QR skaner ham). So'rovni o'zingiz yozasiz:
-                            async funksiya, muvaffaqiyatda { client: { id, full_name, code }, visitsLeft?, method?: "qr" | "code" }
-                            qaytaradi. Biznes rad etsa (topilmadi, muddati tugagan...) { reason, client? } li xato tashlaydi:
-                              reason: "not_found" | "expired" | "finished" | "blocked"
-                            Boshqa xato (internet, server) oddiy axios xatosi bo'lib qoladi.
-     checkInResult          { tone: "ok" | "error", message } oxirgi tekshiruv natijasi. Berilmasa context/admins dan olinadi
-     onAction(id, values)   modaldagi forma saqlanganda. Bu ham async funksiya (so'rov sizniki):
-                              "add-customer"  values: { full_name, phone_number }
-                                              qaytaradi: { client: { id, full_name, code } }
-                              "sell"          values: { code, plan_id, price }
-                                              qaytaradi: { client?, visitTotal?, endDate? }
-
-   Bildirishnomalar shu faylning o'zida ulangan, so'rov kodini yozmaysiz:
-     - saqlash natijasi: context/notifications (POST_pending, POST_success, POST_error), ekranda antd message
-     - voqea xabarlari: context/messages (CUSTOMER_ADDED, SUBSCRIPTION_SOLD, CHECK_IN, CHECK_IN_DENIED)
-     - kirishni belgilash natijasi: context/admins (SET_CHECK_IN_RESULT)
-     onCheckIn/onAction berilmasa (hozirgidek) hech narsa yuborilmaydi va hech qanday bildirishnoma chiqmaydi.
------------------------------------------------------------------------------------------- */
+import api from "../../../axios"
 
 const ICONS = {
      ticket: "M3 8a2 2 0 002-2h14a2 2 0 002 2v3a2 2 0 000 4v3a2 2 0 00-2 2H5a2 2 0 00-2-2v-3a2 2 0 000-4V8zM14 6v12",
@@ -59,33 +28,6 @@ const Icon = ({ name }) => (
      </svg>
 )
 
-/* ------------------------------ NAMUNA ma'lumot ------------------------------ */
-// Haqiqiy ma'lumot props orqali kelmaguncha shu ko'rinadi.
-
-const SAMPLE_ADMIN = {
-     stats: { visitsToday: 23, activeMembers: 118, expiringSoon: 6, incomeToday: 1450000 },
-     visits: [
-          { id: 1, name: "Jasur Karimov", code: "117", time: "18:42" },
-          { id: 2, name: "Doniyor Ergashev", code: "052", time: "18:15" },
-          { id: 3, name: "Sardor Aliyev", code: "204", time: "17:50" },
-          { id: 4, name: "Bobur Tursunov", code: "091", time: "17:12" },
-     ],
-     expiring: [
-          { id: 1, name: "Akmal Yusupov", plan: "1 oylik", note: "2 kun, 3 tashrif qoldi" },
-          { id: 2, name: "Otabek Rahimov", plan: "1 oylik", note: "3 kun, 9 tashrif qoldi" },
-          { id: 3, name: "Shahzod Nurmatov", plan: "3 oylik", note: "5 kun, 4 tashrif qoldi" },
-     ],
-     // Oylik kirim va chiqim, so'mda. Backend ulangach shu shakldagi ro'yxat data.cashflow bilan keladi.
-     cashflow: [
-          { label: "Iyun", income: 26400000, expense: 19800000 },
-          { label: "Iyul", income: 24900000, expense: 20300000 },
-          { label: "Avgust", income: 27800000, expense: 19500000 },
-          { label: "Sentabr", income: 31200000, expense: 21100000 },
-          { label: "Oktabr", income: 33600000, expense: 21700000 },
-          { label: "Noyabr", income: 29500000, expense: 20900000 },
-     ],
-}
-
 /* ------------------------------ Yordamchilar ------------------------------ */
 
 // Brauzerlarda o'zbek tili ma'lumoti bo'lmasligi mumkin, shuning uchun oy va hafta kunlari qo'lda yozilgan
@@ -95,6 +37,13 @@ const WEEKDAYS = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba"
 const today = () => {
      const now = new Date()
      return `${now.getDate()}-${MONTHS[now.getMonth()]}, ${WEEKDAYS[now.getDay()]}`
+}
+
+// Eksa belgisi: 2 000 000 -> "2 mln", 1 500 000 -> "1,5 mln", 250 000 -> "250 ming" (butun mlnga yumaloqlansa belgilar takrorlanib qolardi)
+const shortMoney = (value) => {
+     if (value >= 1000000) return `${String(Number((value / 1000000).toFixed(1))).replace(".", ",")} mln`
+     if (value >= 1000) return `${Math.round(value / 1000)} ming`
+     return String(value)
 }
 
 const money = (value) => String(value).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
@@ -143,7 +92,6 @@ const readForm = (e) => {
 const AddCustomerModal = ({ onClose, onSave }) => (
      <Modal title="Mijoz qo'shish" onClose={onClose}>
           <DialogForm onSubmit={(e) => {
-               // TODO: backendga yuborish (POST /register) shu yerda. Hozircha faqat onSave ga uzatiladi.
                onSave(readForm(e))
                closeDialog(e)
           }}>
@@ -159,6 +107,20 @@ const AddCustomerModal = ({ onClose, onSave }) => (
                <DialogActions>
                     <DialogCancel type="button" onClick={closeDialog}>Bekor qilish</DialogCancel>
                     <DialogSubmit type="submit">Mijozni saqlash</DialogSubmit>
+               </DialogActions>
+          </DialogForm>
+     </Modal>
+)
+
+// Vaqtinchalik parol faqat mijoz yaratilganda ko'rsatiladi (serverda faqat hashi saqlanadi)
+const CredentialsModal = ({ info, onClose }) => (
+     <Modal title="Kirish ma'lumotlari" onClose={onClose}>
+          <DialogForm onSubmit={(e) => { e.preventDefault(); closeDialog(e) }}>
+               <DialogPrice><span>{info.name}, kod</span><strong>{info.code}</strong></DialogPrice>
+               <DialogPrice><span>Vaqtinchalik parol</span><strong>{info.password}</strong></DialogPrice>
+               <small>Parol faqat hozir ko'rinadi: uni mijozga yozib bering. Birinchi kirishda mijoz o'z parolini qo'yadi.</small>
+               <DialogActions>
+                    <DialogSubmit type="submit" data-autofocus>Tushundim</DialogSubmit>
                </DialogActions>
           </DialogForm>
      </Modal>
@@ -236,7 +198,7 @@ const CashflowPanel = ({ cashflow }) => {
                                    width={58}
                                    tickLine={false}
                                    axisLine={false}
-                                   tickFormatter={(v) => `${Math.round(v / 1000000)} mln`}
+                                   tickFormatter={shortMoney}
                               />
                               <Tooltip
                                    cursor={{ stroke: colors.line }}
@@ -274,7 +236,7 @@ const CashflowPanel = ({ cashflow }) => {
 
 /* ------------------------------ Bosh panel ------------------------------ */
 
-const AdminOverview = ({ isOwner, data, isSample, onCheckIn, checkInResult, onAction }) => {
+const AdminOverview = ({ isOwner, data, onCheckIn, checkInResult, onAction }) => {
      const codeRef = useRef(null)
      const [modal, setModal] = useState(null) // null | "add-customer" | "sell"
      const { stats, visits, expiring, cashflow = [] } = data
@@ -295,8 +257,6 @@ const AdminOverview = ({ isOwner, data, isSample, onCheckIn, checkInResult, onAc
                <PageTitle>Bosh panel</PageTitle>
                <DateText>{today()}</DateText>
           </PageHead>
-
-          {isSample && <SampleNote>Namuna ma'lumot: haqiqiy ma'lumot ulanmagan.</SampleNote>}
 
           <Console aria-labelledby="console-title">
                <ConsoleLabel id="console-title">Kirishni belgilash</ConsoleLabel>
@@ -329,6 +289,7 @@ const AdminOverview = ({ isOwner, data, isSample, onCheckIn, checkInResult, onAc
           <Columns>
                <Panel>
                     <PanelTitle>Oxirgi tashriflar</PanelTitle>
+                    {!visits.length && <Empty as="p">Hozircha tashrif yo'q.</Empty>}
                     <List>
                          {visits.map(({ id, name, code, time }) => (
                               <ListItem key={id}>
@@ -341,6 +302,7 @@ const AdminOverview = ({ isOwner, data, isSample, onCheckIn, checkInResult, onAc
 
                <Panel>
                     <PanelTitle>Tez tugaydigan abonementlar</PanelTitle>
+                    {!expiring.length && <Empty as="p">Tez tugaydigan abonement yo'q.</Empty>}
                     <List>
                          {expiring.map(({ id, name, plan, note }) => (
                               <ListItem key={id}>
@@ -368,12 +330,44 @@ const AdminOverview = ({ isOwner, data, isSample, onCheckIn, checkInResult, onAc
 
 /* ------------------------------ Dashboard ------------------------------ */
 
+/* ------------------------------ Ma'lumot olish (backend) ------------------------------ */
+//   GET  /dashboard/admin     { stats, visits, expiring, cashflow }: hammasi serverda hisoblanadi.
+//                             Kirim/chiqim va bugungi tushum faqat ega uchun keladi.
+//   POST /customers           yangi mijoz (kod va vaqtinchalik parol serverda)
+//   POST /subscriptions       abonement sotish. Narx va qoidalar serverdagi abonement turidan olinadi, brauzer narx yubormaydi.
+//   POST /visits/check-in     kirishni belgilash. Rad etilsa error.details.reason: not_found | blocked | expired | finished | already_today
+
+const loadDashboard = async () => (await api.get("/dashboard/admin")).data
+
+const addCustomer = async ({ full_name, phone_number }) => {
+     const { data } = await api.post("/customers", { full_name: full_name.trim(), phone_number: phone_number.trim() })
+     return { client: { id: data.id, full_name: data.full_name, code: data.code }, temporaryPassword: data.temporary_password }
+}
+
+const sellAbonement = async ({ code, plan_id }) => {
+     const { data } = await api.post("/subscriptions", { code: code.trim(), plan_id })
+     return data // { id, client, visitTotal, endDate }
+}
+
+const checkInCustomer = async (code) => {
+     try {
+          return (await api.post("/visits/check-in", { code })).data // { client, visitsLeft, method }
+     } catch (error) {
+          const denied = error.response?.data?.error
+          if (denied?.code === "CHECKIN_DENIED") {
+               throw Object.assign(new Error(denied.details?.reason), { reason: denied.details?.reason, client: denied.details?.client })
+          }
+          throw error
+     }
+}
+
 // Biznes rad etishining foydalanuvchiga ko'rinadigan matni (kirishni belgilash oynasida)
 const DENIED_TEXT = {
      not_found: "Bu kod bo'yicha mijoz topilmadi. Kodni tekshiring.",
      expired: "Abonement muddati tugagan.",
      finished: "Abonement tashriflari tugagan.",
      blocked: "Mijoz bloklangan.",
+     already_today: "Bugun allaqachon belgilangan.",
 }
 
 const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction }) => {
@@ -382,18 +376,43 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
      const [, send] = MessageData()
      const [, adminDispatch] = AdminData()
      const user = userProp ?? outlet?.user
-     const shown = data ?? outlet?.data // props bo'lmasa context/admins dagi ma'lumot, u ham bo'lmasa namuna
+     const isOwner = user?.role === "owner"
+     const shown = data ?? outlet?.data // props bo'lmasa context/admins dagi ma'lumot
+     const [failed, setFailed] = useState(false)
+     const [credentials, setCredentials] = useState(null) // yangi mijozning kodi va vaqtinchalik paroli
+
+     // Ma'lumot serverdan olinadi va context/admins ga yoziladi. silent: bildirishnomasiz yangilash
+     // (saqlash natijasi bildirishnomasi ustidan yozilib qolmasligi uchun amallardan keyin shunday)
+     const reload = useCallback(async (silent = false) => {
+          const entity = "Ma'lumotlar"
+          if (!silent) notify({ type: "GET_pending", payload: { entity } })
+          try {
+               adminDispatch({ type: "SET_DATA", payload: await loadDashboard() })
+               setFailed(false)
+               if (!silent) notify({ type: "GET_success", payload: { entity } })
+          } catch (error) {
+               if (silent) return // eski ma'lumot turaveradi
+               setFailed(true)
+               notify({ type: "GET_error", payload: { entity, error } })
+          }
+     }, [notify, adminDispatch])
+
+     // Sahifa ochilganda: ma'lumot bo'lmasa yuklaymiz, bo'lsa orqada yangilaymiz. props orqali data berilsa so'rov yuborilmaydi.
+     useEffect(() => {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- serverdan ma'lumot olish: sahifa ochilganda bir marta
+          if (!data) reload(Boolean(outlet?.data))
+     }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
      // Modal formalari: so'rov (onAction) sizniki, bu yerda faqat natija ko'rsatiladi va xabar yuboriladi
      const runAction = async (id, values) => {
-          if (!onAction) return
           const sell = id === "sell"
           const entity = sell ? "Abonement" : "Mijoz"
 
           notify({ type: "POST_pending", payload: { entity } })
           try {
-               const result = await onAction(id, values)
+               const result = await (onAction ?? (id === "sell" ? sellAbonement : addCustomer))(...(onAction ? [id, values] : [values]))
                notify({ type: "POST_success", payload: { entity } })
+               reload(true)
 
                if (sell) {
                     send(message("SUBSCRIPTION_SOLD", {
@@ -404,6 +423,7 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
                          endDate: result?.endDate,
                     }))
                } else {
+                    if (result?.temporaryPassword) setCredentials({ name: result.client.full_name, code: result.client.code, password: result.temporaryPassword })
                     send(message("CUSTOMER_ADDED", { client: result?.client ?? { full_name: values.full_name } }))
                }
           } catch (error) {
@@ -412,12 +432,12 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
      }
 
      const runCheckIn = async (code) => {
-          if (!onCheckIn) return
           try {
-               const result = await onCheckIn(code)
+               const result = await (onCheckIn ?? checkInCustomer)(code)
                const left = Number.isFinite(result?.visitsLeft) ? `. Qolgan tashriflar: ${result.visitsLeft}` : ""
                adminDispatch({ type: "SET_CHECK_IN_RESULT", payload: { tone: "ok", message: `${result?.client?.full_name ?? "Mijoz"} belgilandi${left}` } })
                send(message("CHECK_IN", { client: result?.client, method: result?.method, visitsLeft: result?.visitsLeft }))
+               reload(true)
           } catch (error) {
                if (error?.reason) { // zal qoidasi bo'yicha rad etildi: xato emas, aniq sabab bor
                     adminDispatch({ type: "SET_CHECK_IN_RESULT", payload: { tone: "error", message: DENIED_TEXT[error.reason] ?? "Kirishga ruxsat berilmadi." } })
@@ -428,14 +448,26 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
           }
      }
 
-     return <AdminOverview
-          isOwner={user?.role === "owner"}
-          data={shown ?? SAMPLE_ADMIN}
-          isSample={!shown}
-          onCheckIn={runCheckIn}
-          checkInResult={checkInResult ?? outlet?.checkInResult}
-          onAction={runAction}
-     />
+     if (!shown) {
+          return failed
+               ? <Empty>
+                    <h2>Ma'lumotlarni yuklab bo'lmadi</h2>
+                    <p>Internetni tekshirib, qayta urinib ko'ring.</p>
+                    <ActionButton type="button" onClick={() => reload()}>Qayta yuklash</ActionButton>
+               </Empty>
+               : <Empty as="p">Ma'lumotlar yuklanmoqda...</Empty>
+     }
+
+     return <>
+          <AdminOverview
+               isOwner={isOwner}
+               data={shown}
+               onCheckIn={runCheckIn}
+               checkInResult={checkInResult ?? outlet?.checkInResult}
+               onAction={runAction}
+          />
+          {credentials && <CredentialsModal info={credentials} onClose={() => setCredentials(null)} />}
+     </>
 }
 
 export default Dashboard

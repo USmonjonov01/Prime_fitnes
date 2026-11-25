@@ -1,43 +1,20 @@
+import { useCallback, useEffect, useState } from "react"
 import { useOutletContext } from "react-router-dom"
 import {
-     Empty, EmptyLink, Fact, Facts, Greeting, List, ListItem, Panel, PanelTitle, Plan, PlanHead, SampleNote, Stamp, StampNote, Stamps,
+     Empty, EmptyLink, Fact, Facts, Greeting, List, ListItem, Panel, PanelTitle, Plan, PlanHead, Stamp, StampNote, Stamps,
      StatePill,
 } from "./style"
 import { PHONE, PHONE_VIEW } from "../../../utils/gym"
+import { NotificationData } from "../../../context/notifications"
+import { ClientData } from "../../../context/clients"
+import api from "../../../axios"
 
-/* ------------------------------------------------------------------------------------------
-   CLIENTS / DASHBOARD: mijozning bosh sahifasi. Faqat mazmun: karkas va menyu bu yerda YO'Q
-   (karkas root/index.jsx dagi DashboardLayout da, menyu components/Sidebar da).
-   Ma'lumot olish va context ham yo'q, hammasi props orqali keladi.
-
-   Foydalanuvchi va data props orqali berilmasa, DashboardLayout ning <Outlet context> idan olinadi (u context/clients dan keladi).
-
-   Props:
-     user    { full_name, code? }
-     data    { abonement: { name, visitTotal, visitUsed, daysLeft, endDate, state } | null,
-               history: [{ id, date, time }] }
-             state: "active" | "finished" | "expired" | "cancelled"
-             Berilmasa NAMUNA ma'lumot va izoh chiqadi
------------------------------------------------------------------------------------------- */
 
 const Icon = () => (
      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M5 12.5l4.5 4.5L19 7.5" />
      </svg>
 )
-
-/* ------------------------------ NAMUNA ma'lumot ------------------------------ */
-// Haqiqiy ma'lumot props orqali kelmaguncha shu ko'rinadi.
-
-const SAMPLE_CLIENT = {
-     abonement: { name: "1 oylik", visitTotal: 15, visitUsed: 6, daysLeft: 31, endDate: "2026-12-30", state: "active" },
-     history: [
-          { id: 1, date: "18-noyabr", time: "18:42" },
-          { id: 2, date: "16-noyabr", time: "19:05" },
-          { id: 3, date: "14-noyabr", time: "18:20" },
-          { id: 4, date: "12-noyabr", time: "17:55" },
-     ],
-}
 
 /* ------------------------------ Yordamchilar ------------------------------ */
 
@@ -57,9 +34,14 @@ const STATE = {
      cancelled: { label: "Bekor qilingan", tone: "danger" },
 }
 
+/* ------------------------------ Ma'lumot olish (backend) ------------------------------ */
+//   GET /me/dashboard   { abonement, history }: mijoz faqat o'zini ko'radi (id tokendan olinadi, URL dan emas)
+
+const loadClient = async () => (await api.get("/me/dashboard")).data
+
 /* ------------------------------ Mijoz: bosh sahifa ------------------------------ */
 
-const ClientOverview = ({ user, data, isSample }) => {
+const ClientOverview = ({ user, data }) => {
      const { abonement, history } = data
      const left = abonement ? Math.max(0, abonement.visitTotal - abonement.visitUsed) : 0
      const state = abonement ? STATE[abonement.state] ?? STATE.active : null
@@ -74,8 +56,6 @@ const ClientOverview = ({ user, data, isSample }) => {
                <h1>Salom{firstName ? `, ${firstName}` : ""}</h1>
                {user?.code && <p>Zalga kirganda kodingizni ayting: <strong>{user.code}</strong></p>}
           </Greeting>
-
-          {isSample && <SampleNote>Namuna ma'lumot: haqiqiy ma'lumot ulanmagan.</SampleNote>}
 
           {abonement ? (
                <Plan aria-labelledby="plan-title">
@@ -125,10 +105,45 @@ const ClientOverview = ({ user, data, isSample }) => {
 
 const Dashboard = ({ user: userProp, data }) => {
      const outlet = useOutletContext()
+     const [, notify] = NotificationData()
+     const [, clientDispatch] = ClientData()
      const user = userProp ?? outlet?.user
-     const shown = data ?? outlet?.data // props bo'lmasa context/clients dagi ma'lumot, u ham bo'lmasa namuna
+     const userId = user?.id
+     const shown = data ?? outlet?.data // props bo'lmasa context/clients dagi ma'lumot
+     const [failed, setFailed] = useState(false)
 
-     return <ClientOverview user={user} data={shown ?? SAMPLE_CLIENT} isSample={!shown} />
+     // Ma'lumot serverdan olinadi va context/clients ga yoziladi. Allaqachon bor bo'lsa orqada, bildirishnomasiz yangilanadi
+     const reload = useCallback(async (silent = false) => {
+          if (!userId) return
+          const entity = "Ma'lumotlar"
+          if (!silent) notify({ type: "GET_pending", payload: { entity } })
+          try {
+               clientDispatch({ type: "SET_DATA", payload: await loadClient() })
+               setFailed(false)
+               if (!silent) notify({ type: "GET_success", payload: { entity } })
+          } catch (error) {
+               if (silent) return // eski ma'lumot turaveradi
+               setFailed(true)
+               notify({ type: "GET_error", payload: { entity, error } })
+          }
+     }, [userId, notify, clientDispatch])
+
+     useEffect(() => {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- serverdan ma'lumot olish: sahifa ochilganda bir marta
+          if (!data) reload(Boolean(outlet?.data))
+     }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+
+     if (!shown) {
+          return failed
+               ? <Empty>
+                    <h2>Ma'lumotlarni yuklab bo'lmadi</h2>
+                    <p>Internetni tekshirib, qayta urinib ko'ring.</p>
+                    <EmptyLink as="button" type="button" onClick={() => reload()}>Qayta yuklash</EmptyLink>
+               </Empty>
+               : <Empty as="p">Ma'lumotlar yuklanmoqda...</Empty>
+     }
+
+     return <ClientOverview user={user} data={shown} />
 }
 
 export default Dashboard

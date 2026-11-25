@@ -3,6 +3,8 @@ import { lazy } from "react"
 // Har bir tomon alohida yuklanadi: mijoz admin kodini (diagramma kutubxonasi va boshqalar) yuklab olmaydi.
 const AdminDashboard = lazy(() => import("../components/admins/Dashboard"))
 const AdminProfile = lazy(() => import("../components/admins/Profile"))
+const AdminCustomers = lazy(() => import("../components/admins/Customers"))
+const AdminReports = lazy(() => import("../components/admins/Reports"))
 const ClientDashboard = lazy(() => import("../components/clients/Dashboard"))
 const ClientProfile = lazy(() => import("../components/clients/Profile"))
 
@@ -25,8 +27,8 @@ export const homeOf = (role) => {
 // element: null bo'lsa menyuda ko'rinadi, lekin sahifasi hali yo'q.
 const sidebar = [
   { id: "admin-dashboard", area: "admin", title: "Bosh panel", path: "/admin/dashboard", icon: "home",  group: "Kundalik ish", roles: ["staff", "owner"], element: AdminDashboard },
-  { id: "admin-customers", area: "admin", title: "Mijozlar",   path: "/admin/customers", icon: "users", group: "Kundalik ish", roles: ["staff", "owner"], element: null },
-  { id: "admin-reports",   area: "admin", title: "Hisobotlar", path: "/admin/reports",   icon: "chart", group: "Boshqaruv",    roles: ["owner"],          element: null },
+  { id: "admin-customers", area: "admin", title: "Mijozlar",   path: "/admin/customers", icon: "users", group: "Kundalik ish", roles: ["staff", "owner"], element: AdminCustomers },
+  { id: "admin-reports",   area: "admin", title: "Hisobotlar", path: "/admin/reports",   icon: "chart", group: "Boshqaruv",    roles: ["owner"],          element: AdminReports },
   { id: "admin-profile",   area: "admin", title: "Profil",     path: "/admin/profile",   icon: "user",  group: "Hisob",        roles: ["staff", "owner"], element: AdminProfile },
 
   { id: "client-dashboard", area: "client", title: "Bosh sahifa", path: "/client/dashboard", icon: "home", roles: ["customer"], element: ClientDashboard },
