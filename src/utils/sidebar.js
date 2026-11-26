@@ -5,6 +5,7 @@ const AdminDashboard = lazy(() => import("../components/admins/Dashboard"))
 const AdminProfile = lazy(() => import("../components/admins/Profile"))
 const AdminCustomers = lazy(() => import("../components/admins/Customers"))
 const AdminReports = lazy(() => import("../components/admins/Reports"))
+const AdminStaff = lazy(() => import("../components/admins/Staff"))
 const ClientDashboard = lazy(() => import("../components/clients/Dashboard"))
 const ClientProfile = lazy(() => import("../components/clients/Profile"))
 
@@ -29,6 +30,7 @@ const sidebar = [
   { id: "admin-dashboard", area: "admin", title: "Bosh panel", path: "/admin/dashboard", icon: "home",  group: "Kundalik ish", roles: ["staff", "owner"], element: AdminDashboard },
   { id: "admin-customers", area: "admin", title: "Mijozlar",   path: "/admin/customers", icon: "users", group: "Kundalik ish", roles: ["staff", "owner"], element: AdminCustomers },
   { id: "admin-reports",   area: "admin", title: "Hisobotlar", path: "/admin/reports",   icon: "chart", group: "Boshqaruv",    roles: ["owner"],          element: AdminReports },
+  { id: "admin-staff",     area: "admin", title: "Xodimlar",   path: "/admin/staff",     icon: "staff", group: "Boshqaruv",    roles: ["owner"],          element: AdminStaff },
   { id: "admin-profile",   area: "admin", title: "Profil",     path: "/admin/profile",   icon: "user",  group: "Hisob",        roles: ["staff", "owner"], element: AdminProfile },
 
   { id: "client-dashboard", area: "client", title: "Bosh sahifa", path: "/client/dashboard", icon: "home", roles: ["customer"], element: ClientDashboard },

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useOutletContext } from "react-router-dom"
 import { Bar, BarChart, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import {
-     ActionButton, ChartBox, Empty, Figure, Figures, Hint, Legend, LegendItem, Note, PageHead, PageTitle, Panel, PanelTitle,
-     Profit, Ranking, RankingItem, SegmentButton, Segmented, Table, TableWrap,
+     ActionButton, ChartBox, DangerButton, Dialog, DialogActions, DialogCancel, DialogClose, DialogField, DialogForm, DialogHead,
+     DialogInput, DialogSelect, DialogSubmit, Empty, Figure, Figures, Hint, Legend, LegendItem, Note, PageHead, PageTitle, Panel,
+     PanelHead, PanelTitle, Profit, Ranking, RankingItem, RowAction, SegmentButton, Segmented, Table, TableWrap,
 } from "./style"
 import { colors, layout } from "../../../utils/theme"
 import { NotificationData } from "../../../context/notifications"
@@ -38,9 +39,136 @@ const fullLabel = (_, payload) => payload?.[0]?.payload?.full
 
 /* ------------------------------ Ma'lumot olish (backend) ------------------------------ */
 //   GET /reports?months=6|12   faqat ega uchun. Hisob-kitob serverda: { rows, ranking, best, totals, customerCount, hasExpenses }
-//   Chiqimlar: POST /expenses { amount, category?, note?, date? } (faqat ega). Hozircha ularni kiritish oynasi yo'q.
+//   GET /expenses?from=YYYY-MM-DD   davrdagi chiqimlar (yangisi birinchi)
+//   POST /expenses { amount, category?, note?, date? }, DELETE /expenses/:id   faqat ega
 
-const loadReport = async (months) => (await api.get("/reports", { params: { months } })).data
+const loadReport = async (months) => {
+     const report = (await api.get("/reports", { params: { months } })).data
+     // Chiqimlar ro'yxati hisobot davri bilan bir xil: birinchi oyning 1-kunidan boshlab
+     const { data: expenses } = await api.get("/expenses", { params: { from: `${report.rows[0].key}-01` } })
+     return { report, expenses }
+}
+
+const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"]
+const CATEGORIES = ["Ijara", "Maosh", "Kommunal to'lovlar", "Jihoz va ta'mirlash", "Reklama", "Boshqa"]
+const pad = (n) => String(n).padStart(2, "0")
+const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
+const dateText = (value) => {
+     const d = new Date(value)
+     return Number.isNaN(d.getTime()) ? "?" : `${d.getUTCDate()}-${MONTHS[d.getUTCMonth()]}, ${d.getUTCFullYear()}`
+}
+
+/* ------------------------------ Chiqimlar ------------------------------ */
+
+const closeDialog = (e) => e.currentTarget.closest("dialog").close()
+
+const Modal = ({ title, onClose, children }) => {
+     const ref = useRef(null)
+
+     useEffect(() => {
+          const dialog = ref.current
+          if (!dialog.open) dialog.showModal()
+          dialog.querySelector("[data-autofocus]")?.focus()
+     }, [])
+
+     return <Dialog
+          ref={ref}
+          aria-labelledby="dialog-title"
+          onClose={onClose}
+          onClick={(e) => e.target === e.currentTarget && ref.current.close()} // fonni bosish: yopish
+     >
+          <DialogHead>
+               <h2 id="dialog-title">{title}</h2>
+               <DialogClose type="button" aria-label="Yopish" onClick={closeDialog}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+               </DialogClose>
+          </DialogHead>
+          {children}
+     </Dialog>
+}
+
+const AddExpenseModal = ({ onClose, onSave }) => (
+     <Modal title="Chiqim qo'shish" onClose={onClose}>
+          <DialogForm onSubmit={(e) => {
+               e.preventDefault()
+               onSave(Object.fromEntries(new FormData(e.currentTarget)))
+               closeDialog(e)
+          }}>
+               <DialogField>
+                    <label htmlFor="expense-amount">Summa, so'm</label>
+                    <DialogInput id="expense-amount" name="amount" type="number" inputMode="numeric" min="1" step="1" placeholder="Masalan, 3000000" data-autofocus required />
+               </DialogField>
+               <DialogField>
+                    <label htmlFor="expense-category">Turi</label>
+                    <DialogSelect id="expense-category" name="category" defaultValue={CATEGORIES[0]}>
+                         {CATEGORIES.map((name) => <option key={name} value={name}>{name}</option>)}
+                    </DialogSelect>
+               </DialogField>
+               <DialogField>
+                    <label htmlFor="expense-date">Sana</label>
+                    <DialogInput id="expense-date" name="date" type="date" defaultValue={todayKey()} max={todayKey()} required />
+                    <small>Chiqim shu sanaga tegishli oyning hisobotiga yoziladi.</small>
+               </DialogField>
+               <DialogField>
+                    <label htmlFor="expense-note">Izoh (shart emas)</label>
+                    <DialogInput id="expense-note" name="note" type="text" autoComplete="off" maxLength={300} placeholder="Masalan, noyabr oyi ijarasi" />
+               </DialogField>
+               <DialogActions>
+                    <DialogCancel type="button" onClick={closeDialog}>Bekor qilish</DialogCancel>
+                    <DialogSubmit type="submit">Chiqimni saqlash</DialogSubmit>
+               </DialogActions>
+          </DialogForm>
+     </Modal>
+)
+
+const ConfirmDeleteModal = ({ expense, onClose, onConfirm }) => (
+     <Modal title="Chiqimni o'chirish" onClose={onClose}>
+          <DialogForm onSubmit={(e) => e.preventDefault()}>
+               <p>{dateText(expense.date)}, {expense.category ?? "Turi yo'q"}: {money(expense.amount)} so'm. O'chirilsa hisobotdagi chiqim kamayadi. Davom etamizmi?</p>
+               <DialogActions>
+                    <DialogCancel type="button" data-autofocus onClick={closeDialog}>Yo'q, qaytish</DialogCancel>
+                    <DangerButton type="button" onClick={(e) => { onConfirm(expense); closeDialog(e) }}>Ha, o'chirish</DangerButton>
+               </DialogActions>
+          </DialogForm>
+     </Modal>
+)
+
+const ExpensesPanel = ({ expenses, onAdd, onDelete }) => (
+     <Panel aria-labelledby="expenses-title">
+          <PanelHead>
+               <h2 id="expenses-title">Chiqimlar</h2>
+               <ActionButton type="button" onClick={onAdd}>+ Chiqim qo'shish</ActionButton>
+          </PanelHead>
+
+          {expenses.length
+               ? <TableWrap tabIndex={0} role="region" aria-label="Chiqimlar ro'yxati">
+                    <Table>
+                         <caption>Tanlangan davrdagi chiqimlar, so'mda</caption>
+                         <thead>
+                              <tr>
+                                   <th scope="col">Sana</th>
+                                   <th scope="col">Turi</th>
+                                   <th scope="col">Izoh</th>
+                                   <th scope="col">Summa</th>
+                                   <th scope="col"><span style={{ position: "absolute", left: "-9999px" }}>Amal</span></th>
+                              </tr>
+                         </thead>
+                         <tbody>
+                              {expenses.map((e) => (
+                                   <tr key={e.id}>
+                                        <th scope="row">{dateText(e.date)}</th>
+                                        <td>{e.category ?? "—"}</td>
+                                        <td>{e.note || "—"}</td>
+                                        <td>{money(e.amount)}</td>
+                                        <td><RowAction type="button" onClick={() => onDelete(e)}>O'chirish</RowAction></td>
+                                   </tr>
+                              ))}
+                         </tbody>
+                    </Table>
+               </TableWrap>
+               : <Empty as="p">Bu davrda chiqim kiritilmagan. Ijara, maosh va boshqa xarajatlarni «Chiqim qo'shish» orqali kiriting.</Empty>}
+     </Panel>
+)
 
 /* ------------------------------ Bo'limlar ------------------------------ */
 
@@ -86,7 +214,7 @@ const ProfitChart = ({ rows, span }) => (
 const ProfitTable = ({ rows, totals, hasExpenses }) => (
      <Panel aria-labelledby="pl-title">
           <PanelTitle id="pl-title">Foyda va zarar jadvali</PanelTitle>
-          {!hasExpenses && <Note>Chiqimlar ro'yxati bo'sh, shuning uchun foyda kirimga teng ko'rinadi. Chiqimlar adminlar API dagi /expenses ga kiritiladi.</Note>}
+          {!hasExpenses && <Note>Chiqimlar ro'yxati bo'sh, shuning uchun foyda kirimga teng ko'rinadi. Pastdagi «Chiqim qo'shish» tugmasi bilan ijara, maosh va boshqa xarajatlarni kiriting.</Note>}
           <TableWrap tabIndex={0} role="region" aria-label="Foyda va zarar jadvali">
                <Table>
                     <caption>Oylar bo'yicha kirim, chiqim va foyda yoki zarar, so'mda</caption>
@@ -222,6 +350,9 @@ const PlansPanel = ({ ranking, span }) => {
 const OwnerReports = () => {
      const [, notify] = NotificationData()
      const [report, setReport] = useState(null)
+     const [expenses, setExpenses] = useState([])
+     const [addingExpense, setAddingExpense] = useState(false)
+     const [deleting, setDeleting] = useState(null) // o'chirish tasdiqlanayotgan chiqim
      const [failed, setFailed] = useState(false)
      const [span, setSpan] = useState(6)
 
@@ -230,7 +361,9 @@ const OwnerReports = () => {
           const entity = "Hisobot"
           notify({ type: "GET_pending", payload: { entity } })
           try {
-               setReport(await loadReport(span))
+               const loaded = await loadReport(span)
+               setReport(loaded.report)
+               setExpenses(loaded.expenses)
                setFailed(false)
                notify({ type: "GET_success", payload: { entity } })
           } catch (error) {
@@ -244,6 +377,30 @@ const OwnerReports = () => {
           // eslint-disable-next-line react-hooks/set-state-in-effect -- serverdan ma'lumot olish
           reload()
      }, [reload])
+
+     const handleAddExpense = async ({ amount, category, date, note }) => {
+          const entity = "Chiqim"
+          notify({ type: "POST_pending", payload: { entity } })
+          try {
+               await api.post("/expenses", { amount: Number(amount), category, date, ...(note?.trim() ? { note: note.trim() } : {}) })
+               notify({ type: "POST_success", payload: { entity } })
+               await reload()
+          } catch (error) {
+               notify({ type: "POST_error", payload: { entity, error } })
+          }
+     }
+
+     const handleDeleteExpense = async (expense) => {
+          const entity = "Chiqim"
+          notify({ type: "DELETE_pending", payload: { entity } })
+          try {
+               await api.delete(`/expenses/${expense.id}`)
+               notify({ type: "DELETE_success", payload: { entity } })
+               await reload()
+          } catch (error) {
+               notify({ type: "DELETE_error", payload: { entity, error } })
+          }
+     }
 
      if (!report) {
           return failed
@@ -260,6 +417,7 @@ const OwnerReports = () => {
      return <>
           <PageHead>
                <PageTitle>Hisobotlar</PageTitle>
+               <ActionButton type="button" onClick={() => setAddingExpense(true)}>+ Chiqim qo'shish</ActionButton>
                <Segmented role="group" aria-label="Davr">
                     {SPANS.map((n) => (
                          <SegmentButton key={n} type="button" aria-pressed={span === n} $active={span === n} onClick={() => setSpan(n)}>
@@ -289,6 +447,10 @@ const OwnerReports = () => {
           <ProfitTable rows={rows} totals={totals} hasExpenses={hasExpenses} />
           <FlowChart rows={rows} totals={totals} span={span} />
           <PlansPanel ranking={ranking} span={span} />
+          <ExpensesPanel expenses={expenses} onAdd={() => setAddingExpense(true)} onDelete={setDeleting} />
+
+          {addingExpense && <AddExpenseModal onClose={() => setAddingExpense(false)} onSave={handleAddExpense} />}
+          {deleting && <ConfirmDeleteModal expense={deleting} onClose={() => setDeleting(null)} onConfirm={handleDeleteExpense} />}
      </>
 }
 

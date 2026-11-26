@@ -114,8 +114,8 @@ export const Result = styled.p`
      padding: 0.75rem 1rem;
      border-radius: ${layout.radius};
      font-weight: 700;
-     background: ${({ $tone }) => ($tone === "error" ? "rgba(255, 93, 93, 0.22)" : "rgba(47, 211, 140, 0.22)")};
-     border-left: 4px solid ${({ $tone }) => ($tone === "error" ? colors.danger : colors.ok)};
+     background: ${({ $tone }) => ({ error: "rgba(255, 93, 93, 0.22)", wait: "rgba(141, 180, 255, 0.14)" }[$tone] ?? "rgba(47, 211, 140, 0.22)")};
+     border-left: 4px solid ${({ $tone }) => ({ error: colors.danger, wait: colors.neon }[$tone] ?? colors.ok)};
 `
 
 export const Figures = styled.dl`

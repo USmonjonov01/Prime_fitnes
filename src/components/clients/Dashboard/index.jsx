@@ -8,6 +8,7 @@ import { PHONE, PHONE_VIEW } from "../../../utils/gym"
 import { NotificationData } from "../../../context/notifications"
 import { ClientData } from "../../../context/clients"
 import api from "../../../axios"
+import ActivityFeed from "../../ActivityFeed"
 
 
 const Icon = () => (
@@ -143,7 +144,10 @@ const Dashboard = ({ user: userProp, data }) => {
                : <Empty as="p">Ma'lumotlar yuklanmoqda...</Empty>
      }
 
-     return <ClientOverview user={user} data={shown} />
+     return <>
+          <ClientOverview user={user} data={shown} />
+          <ActivityFeed url="/me/activity" audience="client" title="Xabarlar" />
+     </>
 }
 
 export default Dashboard

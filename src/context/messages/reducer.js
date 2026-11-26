@@ -88,6 +88,7 @@ const DENIED_REASON = {
      expired: "abonement muddati tugagan",
      finished: "abonement tashriflari tugagan",
      blocked: "mijoz bloklangan",
+     already_today: "bugun allaqachon belgilangan",
 }
 
 /* ------------------------------ Xabar tuzuvchilar ------------------------------ */
@@ -139,7 +140,9 @@ const BUILDERS = {
                },
                {
                     audience: "client", clientId: client.id, kind: "warning", title: "Kirish tasdiqlanmadi",
-                    text: sentence(why ? `${capitalize(why)}.` : "Sababi aniqlanmadi.", "Administratorga murojaat qiling."),
+                    text: reason === "already_today"
+                         ? "Bugungi kirishingiz allaqachon belgilangan."
+                         : sentence(why ? `${capitalize(why)}.` : "Sababi aniqlanmadi.", "Administratorga murojaat qiling."),
                },
           ]
      },
@@ -196,6 +199,10 @@ const BUILDERS = {
           ]
      },
 }
+
+// Serverdagi voqea (type + payload) uchun ko'rsatiladigan matn: { audience, kind, title, text }.
+// Voqea shu auditoriyaga mo'ljallanmagan bo'lsa null (masalan, kodi topilmagan urinish mijozga ko'rinmaydi).
+export const describe = (type, payload, audience) => BUILDERS[type]?.(payload ?? {}).find((m) => m.audience === audience) ?? null
 
 /* ------------------------------ Reducer ------------------------------ */
 

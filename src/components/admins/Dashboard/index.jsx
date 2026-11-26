@@ -14,6 +14,7 @@ import { MessageData } from "../../../context/messages"
 import { message } from "../../../context/messages/reducer"
 import { AdminData } from "../../../context/admins"
 import api from "../../../axios"
+import ActivityFeed from "../../ActivityFeed"
 
 const ICONS = {
      ticket: "M3 8a2 2 0 002-2h14a2 2 0 002 2v3a2 2 0 000 4v3a2 2 0 00-2 2H5a2 2 0 00-2-2v-3a2 2 0 000-4V8zM14 6v12",
@@ -236,7 +237,7 @@ const CashflowPanel = ({ cashflow }) => {
 
 /* ------------------------------ Bosh panel ------------------------------ */
 
-const AdminOverview = ({ isOwner, data, onCheckIn, checkInResult, onAction }) => {
+const AdminOverview = ({ isOwner, data, onCheckIn, checkInResult, checking, onAction }) => {
      const codeRef = useRef(null)
      const [modal, setModal] = useState(null) // null | "add-customer" | "sell"
      const { stats, visits, expiring, cashflow = [] } = data
@@ -245,6 +246,7 @@ const AdminOverview = ({ isOwner, data, onCheckIn, checkInResult, onAction }) =>
           e.preventDefault()
           const code = codeRef.current.value.trim()
           if (!code) return codeRef.current.focus()
+          if (checking) return // oldingi mijoz tekshirilmoqda: ketma-ket skanerlashda navbat aralashmasin
           onCheckIn?.(code)
           codeRef.current.value = ""
           codeRef.current.focus() // keyingi mijoz uchun tayyor (QR skaner ketma-ket o'qiydi)
@@ -268,13 +270,15 @@ const AdminOverview = ({ isOwner, data, onCheckIn, checkInResult, onAction }) =>
                          aria-labelledby="console-title"
                          placeholder="Mijoz kodi"
                     />
-                    <ConsoleSubmit type="submit">
+                    <ConsoleSubmit type="submit" disabled={checking}>
                          <Icon name="scan" />
-                         Belgilash
+                         {checking ? "Tekshirilmoqda..." : "Belgilash"}
                     </ConsoleSubmit>
                </ConsoleForm>
                <ConsoleHint>Kodni yozing yoki QR skanerdan o'qiting, Enter bossangiz belgilanadi.</ConsoleHint>
-               {checkInResult && <Result role="status" $tone={checkInResult.tone}>{checkInResult.message}</Result>}
+               {checking
+                    ? <Result role="status" $tone="wait">Tekshirilmoqda... Server uyg'onayotgan bo'lsa bir necha soniya ketadi.</Result>
+                    : checkInResult && <Result role="status" $tone={checkInResult.tone}>{checkInResult.message}</Result>}
           </Console>
 
           <Figures aria-label="Bugungi ko'rsatkichlar">
@@ -380,6 +384,8 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
      const shown = data ?? outlet?.data // props bo'lmasa context/admins dagi ma'lumot
      const [failed, setFailed] = useState(false)
      const [credentials, setCredentials] = useState(null) // yangi mijozning kodi va vaqtinchalik paroli
+     const [checking, setChecking] = useState(false) // kirish belgilanmoqda (javob kutilmoqda)
+     const [tick, setTick] = useState(0) // voqealar lentasini darhol yangilash uchun
 
      // Ma'lumot serverdan olinadi va context/admins ga yoziladi. silent: bildirishnomasiz yangilash
      // (saqlash natijasi bildirishnomasi ustidan yozilib qolmasligi uchun amallardan keyin shunday)
@@ -403,6 +409,14 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
           if (!data) reload(Boolean(outlet?.data))
      }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
+     // Natija 10 soniyadan keyin o'zi yo'qoladi (keyingi mijozga o'tganda eski natija chalg'itmasin)
+     const shownResult = checkInResult ?? outlet?.checkInResult
+     useEffect(() => {
+          if (!shownResult) return
+          const timer = setTimeout(() => adminDispatch({ type: "CLEAR_CHECK_IN" }), 10000)
+          return () => clearTimeout(timer)
+     }, [shownResult, adminDispatch])
+
      // Modal formalari: so'rov (onAction) sizniki, bu yerda faqat natija ko'rsatiladi va xabar yuboriladi
      const runAction = async (id, values) => {
           const sell = id === "sell"
@@ -413,6 +427,7 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
                const result = await (onAction ?? (id === "sell" ? sellAbonement : addCustomer))(...(onAction ? [id, values] : [values]))
                notify({ type: "POST_success", payload: { entity } })
                reload(true)
+               setTick((n) => n + 1)
 
                if (sell) {
                     send(message("SUBSCRIPTION_SOLD", {
@@ -432,10 +447,12 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
      }
 
      const runCheckIn = async (code) => {
+          setChecking(true)
           try {
                const result = await (onCheckIn ?? checkInCustomer)(code)
                const left = Number.isFinite(result?.visitsLeft) ? `. Qolgan tashriflar: ${result.visitsLeft}` : ""
                adminDispatch({ type: "SET_CHECK_IN_RESULT", payload: { tone: "ok", message: `${result?.client?.full_name ?? "Mijoz"} belgilandi${left}` } })
+               notify({ type: "POST_success", payload: { entity: "Kirish" } })
                send(message("CHECK_IN", { client: result?.client, method: result?.method, visitsLeft: result?.visitsLeft }))
                reload(true)
           } catch (error) {
@@ -445,6 +462,9 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
                } else {
                     notify({ type: "POST_error", payload: { entity: "Kirish", error } })
                }
+          } finally {
+               setChecking(false)
+               setTick((n) => n + 1)
           }
      }
 
@@ -463,9 +483,11 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
                isOwner={isOwner}
                data={shown}
                onCheckIn={runCheckIn}
-               checkInResult={checkInResult ?? outlet?.checkInResult}
+               checkInResult={shownResult}
+               checking={checking}
                onAction={runAction}
           />
+          <ActivityFeed url="/activity" audience="admin" title="So'nggi voqealar" showActor refreshKey={tick} />
           {credentials && <CredentialsModal info={credentials} onClose={() => setCredentials(null)} />}
      </>
 }

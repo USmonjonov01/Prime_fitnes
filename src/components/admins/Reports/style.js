@@ -298,3 +298,42 @@ export const RankingItem = styled.li`
           text-align: right;
      }
 `
+/* Chiqim qo'shish oynasi: Bosh paneldagi modal bilan bir xil ko'rinadi */
+export {
+     Dialog, DialogActions, DialogCancel, DialogClose, DialogField, DialogForm, DialogHead, DialogInput, DialogSelect, DialogSubmit,
+} from "../Dashboard/style"
+export { DangerButton } from "../Customers/style"
+
+export const RowAction = styled.button`
+     min-height: 2.25rem;
+     padding: 0 0.8rem;
+     border: 1px solid ${colors.line};
+     border-radius: ${layout.radius};
+     background: transparent;
+     color: ${colors.steel};
+     font: inherit;
+     font-size: 0.875rem;
+     cursor: pointer;
+
+     &:hover {
+          color: ${colors.danger};
+          border-color: ${colors.danger};
+     }
+
+     ${focusRing}
+`
+
+export const PanelHead = styled.div`
+     display: flex;
+     flex-wrap: wrap;
+     align-items: center;
+     justify-content: space-between;
+     gap: 0.75rem 1rem;
+     padding-bottom: 0.9rem;
+     border-bottom: 1px solid ${colors.line};
+
+     h2 {
+          ${display};
+          font-size: 1.25rem;
+     }
+`
