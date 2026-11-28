@@ -1,15 +1,16 @@
-import { Suspense, useEffect, useRef, useState } from "react"
+import { Suspense, useEffect, useRef } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import Navbar from "../components/Navbar"
 import Data from "../utils/navbar"
 import Login from "../components/Login"
 import Sidebar from "../components/Sidebar"
 import { Content, Main, Shell } from "../components/Sidebar/style"
-import PrivateRoutes from "./privateRoutes"
+import PrivateRoutes, { SessionRedirect } from "./privateRoutes"
 import sidebar, { AREAS } from "../utils/sidebar"
 import { AdminData } from "../context/admins"
 import { ClientData } from "../context/clients"
-import api, { getAccessToken, refreshSession, setAccessToken } from "../axios"
+import api, { setAccessToken } from "../axios"
+import { clearUser, readUser } from "../utils/session"
 
 // Sahifa almashganda tepaga qaytaradi. Manzilda #bo'lim bo'lsa (masalan /home#narxlar),
 // boshqa sahifadan kelganda ham o'sha bo'limga olib boradi. Bir sahifa ichidagi #havolalarni
@@ -40,14 +41,6 @@ const PublicLayout = () => <>
 // Ichki tizim karkasi (admin va mijoz uchun bitta): chapda Sidebar, o'ngda tanlangan bo'lim (Outlet).
 // Public Navbar bu yerda chiqmaydi. Foydalanuvchi Outlet context orqali bo'limlarga uzatiladi.
 // Sahifalar lazy yuklanadi, shuning uchun Suspense kerak.
-const readStored = () => {
-     try {
-          return JSON.parse(localStorage.getItem("userData"))
-     } catch {
-          return null
-     }
-}
-
 const DashboardLayout = () => {
      // Foydalanuvchi o'z tomonining contextidan olinadi. Sahifa yangilanganda context bo'sh bo'ladi,
      // shunda localStorage dagi userData dan tiklanadi (PrivateRoutes shu yozuvni tekshiradi).
@@ -56,7 +49,7 @@ const DashboardLayout = () => {
      const { pathname } = useLocation()
      const navigate = useNavigate()
 
-     const stored = readStored()
+     const stored = readUser()
      const isCustomer = stored?.role === "customer"
      const side = isCustomer ? client : admin
      const dispatch = isCustomer ? clientDispatch : adminDispatch
@@ -66,21 +59,10 @@ const DashboardLayout = () => {
           if (stored && !side?.user) dispatch({ type: "LOGIN", payload: { user: stored } })
      }, [side?.user])   // eslint-disable-line react-hooks/exhaustive-deps
 
-     // Access token xotirada turadi: sahifa yangilansa yo'qoladi. Cookie dagi refresh token bilan jimgina tiklanadi.
-     // Tiklanmasa (sessiya tugagan yoki akkaunt bloklangan) login sahifasiga o'tadi.
-     const [ready, setReady] = useState(Boolean(getAccessToken()))
-     useEffect(() => {
-          if (ready) return
-          refreshSession()
-               .then(() => setReady(true))
-               .catch(() => {
-                    localStorage.removeItem("userData")
-                    navigate("/login", { replace: true })
-               })
-     }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+     // Access tokenni tiklash PrivateRoutes da (useSession): bu yerga faqat tasdiqlangan foydalanuvchi keladi.
 
      // Chiqishdan keyin /login ga o'tish tugaguncha bir lahza foydalanuvchi yo'q: xato bermasdan bo'sh qoladi
-     if (!user || !ready) return null
+     if (!user) return null
 
      const items = sidebar.filter(i => i.roles.includes(user.role))
      const active = items.find(i => i.path === pathname)
@@ -97,8 +79,8 @@ const DashboardLayout = () => {
                     setAccessToken(null)
                     adminDispatch({ type: "LOGOUT" })
                     clientDispatch({ type: "LOGOUT" })
-                    localStorage.removeItem("userData")
-                    navigate("/login")
+                    clearUser()
+                    navigate("/login", { replace: true })
                }}
           />
           <Main>
@@ -114,7 +96,7 @@ const DashboardLayout = () => {
 const Root = () => {
      return <Routes>
           <Route element={<PublicLayout />}>
-               <Route path="/" element={<Navigate to="/home" replace />} />
+               <Route path="/" element={<SessionRedirect guest="/home" />} />
                {Data?.map(({ path, element: Element }) => (
                     <Route key={path} path={path} element={<Element />} />
                ))}
@@ -130,7 +112,7 @@ const Root = () => {
                </Route>
           ))}
 
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<SessionRedirect><Login /></SessionRedirect>} />
 
           <Route path="*" element={<h1>404 Not Found</h1>} />
      </Routes>

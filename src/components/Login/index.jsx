@@ -6,6 +6,7 @@ import { INSTAGRAM, PHONE, PHONE_VIEW } from "../../utils/gym"
 import api, { apiMessage, setAccessToken } from "../../axios"
 import { useNavigate } from "react-router-dom"
 import { homeOf } from "../../utils/sidebar"
+import { saveUser } from "../../utils/session"
 import { NotificationData } from "../../context/notifications"
 import { AdminData } from "../../context/admins"
 import { ClientData } from "../../context/clients"
@@ -55,10 +56,7 @@ const Login = () => {
      // Server tasdiqlagan foydalanuvchi: rol serverdan keladi (admin yoki mijoz belgisi endi kerak emas)
      function finish(user) {
           // Brauzerga faqat interfeys uchun kerakli maydonlar yoziladi. Haqiqiy himoya serverda (token orqali).
-          const saved = { id: user.id, full_name: user.full_name, phone_number: user.phone_number, role: user.role }
-          if (user.code) saved.code = user.code
-
-          localStorage.setItem("userData", JSON.stringify(saved)) // avval saqlaymiz, keyin o'tamiz
+          const saved = saveUser(user) // avval saqlaymiz, keyin o'tamiz
           // Context va localStorage bir xil: sahifa yangilansa context bo'shaydi, DashboardLayout uni localStorage dan tiklaydi
           ;(user.role === "customer" ? clientDispatch : adminDispatch)({ type: "LOGIN", payload: { user: saved } })
           ;(user.role === "customer" ? adminDispatch : clientDispatch)({ type: "LOGOUT" }) // boshqa tomonda qolgan eski foydalanuvchi bo'lmasin

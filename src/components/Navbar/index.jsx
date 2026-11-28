@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
 import Data from "../../utils/navbar"
+import { readUser } from "../../utils/session"
+import { homeOf } from "../../utils/sidebar"
 import { Brand, Burger, Bar, Header, Links, LoginLink, MobileLink, MobilePanel, NavItem } from "./style"
 
 const Navbar = function () {
@@ -22,6 +24,8 @@ const Navbar = function () {
      }, [open])
 
      const close = () => setOpen(false)
+     // Kirgan foydalanuvchiga "Kirish" o'rniga o'z paneliga havola ko'rsatiladi
+     const home = homeOf(readUser()?.role)
 
      return <Header $solid={scrolled || open}>
           <Bar>
@@ -36,7 +40,7 @@ const Navbar = function () {
                     ))}
                </Links>
 
-               <LoginLink to="/login">Kirish</LoginLink>
+               <LoginLink to={home ?? "/login"}>{home ? "Kabinet" : "Kirish"}</LoginLink>
 
                <Burger
                     type="button"
