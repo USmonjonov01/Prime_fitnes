@@ -9,6 +9,7 @@ import { NotificationData } from "../../../context/notifications"
 import { ClientData } from "../../../context/clients"
 import api from "../../../axios"
 import ActivityFeed from "../../ActivityFeed"
+import QrPass from "../../QrPass"
 
 
 const Icon = () => (
@@ -55,8 +56,10 @@ const ClientOverview = ({ user, data }) => {
      return <>
           <Greeting>
                <h1>Salom{firstName ? `, ${firstName}` : ""}</h1>
-               {user?.code && <p>Zalga kirganda kodingizni ayting: <strong>{user.code}</strong></p>}
+               {user?.code && <p>Zalga kirganda pastdagi QR kodni ko'rsating. Telefon ishlamasa kodingizni ayting: <strong>{user.code}</strong></p>}
           </Greeting>
+
+          <QrPass active={abonement?.state === "active"} />
 
           {abonement ? (
                <Plan aria-labelledby="plan-title">

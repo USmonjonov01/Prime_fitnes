@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom"
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import {
      ActionButton, Actions, CashHead, CashLegend, CashSummary, CashValue, ChartBox, CodeInput, Columns, Console, ConsoleForm, ConsoleHint,
-     ConsoleLabel, ConsoleSubmit, DateText, Dialog, DialogActions, DialogCancel, DialogClose, DialogField, DialogForm, DialogHead,
+     ConsoleLabel, ConsoleSubmit, ScanToggle, DateText, Dialog, DialogActions, DialogCancel, DialogClose, DialogField, DialogForm, DialogHead,
      DialogInput, DialogPrice, DialogSelect, DialogSubmit, Empty, Figure, Figures, LegendItem,
      List, ListItem, PageHead, PageTitle, Panel, PanelTitle, Pill, Result,
 } from "./style"
@@ -15,6 +15,8 @@ import { message } from "../../../context/messages/reducer"
 import { AdminData } from "../../../context/admins"
 import api from "../../../axios"
 import ActivityFeed from "../../ActivityFeed"
+import PhoneVerify from "../../PhoneVerify"
+import QrScanner from "../../QrScanner"
 
 const ICONS = {
      ticket: "M3 8a2 2 0 002-2h14a2 2 0 002 2v3a2 2 0 000 4v3a2 2 0 00-2 2H5a2 2 0 00-2-2v-3a2 2 0 000-4V8zM14 6v12",
@@ -120,6 +122,7 @@ const CredentialsModal = ({ info, onClose }) => (
                <DialogPrice><span>{info.name}, kod</span><strong>{info.code}</strong></DialogPrice>
                <DialogPrice><span>Vaqtinchalik parol</span><strong>{info.password}</strong></DialogPrice>
                <small>Parol faqat hozir ko'rinadi: uni mijozga yozib bering. Birinchi kirishda mijoz o'z parolini qo'yadi.</small>
+               {info.customer && <PhoneVerify customer={info.customer} />}
                <DialogActions>
                     <DialogSubmit type="submit" data-autofocus>Tushundim</DialogSubmit>
                </DialogActions>
@@ -240,6 +243,7 @@ const CashflowPanel = ({ cashflow }) => {
 const AdminOverview = ({ isOwner, data, onCheckIn, checkInResult, checking, onAction }) => {
      const codeRef = useRef(null)
      const [modal, setModal] = useState(null) // null | "add-customer" | "sell"
+     const [scanning, setScanning] = useState(false) // kamera orqali QR skanerlash yoqilgan
      const { stats, visits, expiring, cashflow = [] } = data
 
      const submitCode = (e) => {
@@ -275,7 +279,12 @@ const AdminOverview = ({ isOwner, data, onCheckIn, checkInResult, checking, onAc
                          {checking ? "Tekshirilmoqda..." : "Belgilash"}
                     </ConsoleSubmit>
                </ConsoleForm>
-               <ConsoleHint>Kodni yozing yoki QR skanerdan o'qiting, Enter bossangiz belgilanadi.</ConsoleHint>
+               <ScanToggle type="button" aria-pressed={scanning} onClick={() => setScanning((on) => !on)}>
+                    <Icon name="scan" />
+                    {scanning ? "Kamerani o'chirish" : "Kamera bilan skanerlash"}
+               </ScanToggle>
+               {scanning && <QrScanner paused={checking} onScan={(text) => onCheckIn?.({ qr: text })} />}
+               <ConsoleHint>Mijozning telefonidagi QR kodni kamera bilan o'qiting. USB skaner ham ishlaydi, zaxira yo'l: kodni yozib Enter bosing.</ConsoleHint>
                {checking
                     ? <Result role="status" $tone="wait">Tekshirilmoqda... Server uyg'onayotgan bo'lsa bir necha soniya ketadi.</Result>
                     : checkInResult && <Result role="status" $tone={checkInResult.tone}>{checkInResult.message}</Result>}
@@ -353,9 +362,10 @@ const sellAbonement = async ({ code, plan_id }) => {
      return data // { id, client, visitTotal, endDate }
 }
 
-const checkInCustomer = async (code) => {
+// payload: { code } (qo'lda yozilgan kod) yoki { qr } (QR kod matni)
+const checkInCustomer = async (payload) => {
      try {
-          return (await api.post("/visits/check-in", { code })).data // { client, visitsLeft, method }
+          return (await api.post("/visits/check-in", payload)).data // { client, visitsLeft, method }
      } catch (error) {
           const denied = error.response?.data?.error
           if (denied?.code === "CHECKIN_DENIED") {
@@ -372,6 +382,8 @@ const DENIED_TEXT = {
      finished: "Abonement tashriflari tugagan.",
      blocked: "Mijoz bloklangan.",
      already_today: "Bugun allaqachon belgilangan.",
+     qr_expired: "QR kod muddati tugagan. Mijozdan telefonidagi kodni yangilab (sahifani qayta ochib), qayta ko'rsatishni so'rang.",
+     qr_invalid: "QR kod noto'g'ri yoki Prime Fit kodi emas.",
 }
 
 const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction }) => {
@@ -438,7 +450,7 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
                          endDate: result?.endDate,
                     }))
                } else {
-                    if (result?.temporaryPassword) setCredentials({ name: result.client.full_name, code: result.client.code, password: result.temporaryPassword })
+                    if (result?.temporaryPassword) setCredentials({ name: result.client.full_name, code: result.client.code, password: result.temporaryPassword, customer: result.client.id ? { id: result.client.id, phone_number: values.phone_number } : null })
                     send(message("CUSTOMER_ADDED", { client: result?.client ?? { full_name: values.full_name } }))
                }
           } catch (error) {
@@ -446,10 +458,14 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
           }
      }
 
-     const runCheckIn = async (code) => {
+     // Kirish matnidan so'rov tanasi: QR (yoki USB skaner yozgan "PF1." matni) -> qr, boshqasi -> qo'lda yozilgan kod
+     const runCheckIn = async (input) => {
+          const payload = typeof input === "string"
+               ? (input.trim().startsWith("PF1.") ? { qr: input.trim().slice(0, 200) } : { code: input.trim() })
+               : { qr: String(input.qr).slice(0, 200) }
           setChecking(true)
           try {
-               const result = await (onCheckIn ?? checkInCustomer)(code)
+               const result = await (onCheckIn ?? checkInCustomer)(payload)
                const left = Number.isFinite(result?.visitsLeft) ? `. Qolgan tashriflar: ${result.visitsLeft}` : ""
                adminDispatch({ type: "SET_CHECK_IN_RESULT", payload: { tone: "ok", message: `${result?.client?.full_name ?? "Mijoz"} belgilandi${left}` } })
                notify({ type: "POST_success", payload: { entity: "Kirish" } })
@@ -458,7 +474,7 @@ const Dashboard = ({ user: userProp, data, onCheckIn, checkInResult, onAction })
           } catch (error) {
                if (error?.reason) { // zal qoidasi bo'yicha rad etildi: xato emas, aniq sabab bor
                     adminDispatch({ type: "SET_CHECK_IN_RESULT", payload: { tone: "error", message: DENIED_TEXT[error.reason] ?? "Kirishga ruxsat berilmadi." } })
-                    send(message("CHECK_IN_DENIED", { client: error.client, code, reason: error.reason }))
+                    send(message("CHECK_IN_DENIED", { client: error.client, code: payload.code, reason: error.reason }))
                } else {
                     notify({ type: "POST_error", payload: { entity: "Kirish", error } })
                }

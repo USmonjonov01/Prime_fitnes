@@ -89,6 +89,14 @@ const DENIED_REASON = {
      finished: "abonement tashriflari tugagan",
      blocked: "mijoz bloklangan",
      already_today: "bugun allaqachon belgilangan",
+     qr_expired: "QR kod muddati tugagan",
+     qr_invalid: "QR kod noto'g'ri",
+}
+
+// Mijozning o'ziga ko'rsatiladigan matn, "administratorga murojaat qiling" mos kelmaydigan sabablar uchun
+const CLIENT_REASON_TEXT = {
+     already_today: "Bugungi kirishingiz allaqachon belgilangan.",
+     qr_expired: "QR kodingiz eskirgan edi. Sahifa o'zi yangilanadi, kodni qayta ko'rsating.",
 }
 
 /* ------------------------------ Xabar tuzuvchilar ------------------------------ */
@@ -140,9 +148,8 @@ const BUILDERS = {
                },
                {
                     audience: "client", clientId: client.id, kind: "warning", title: "Kirish tasdiqlanmadi",
-                    text: reason === "already_today"
-                         ? "Bugungi kirishingiz allaqachon belgilangan."
-                         : sentence(why ? `${capitalize(why)}.` : "Sababi aniqlanmadi.", "Administratorga murojaat qiling."),
+                    text: CLIENT_REASON_TEXT[reason]
+                         ?? sentence(why ? `${capitalize(why)}.` : "Sababi aniqlanmadi.", "Administratorga murojaat qiling."),
                },
           ]
      },

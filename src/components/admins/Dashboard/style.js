@@ -105,6 +105,30 @@ export const ConsoleSubmit = styled.button`
      ${focusRing}
 `
 
+export const ScanToggle = styled.button`
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     gap: 0.6rem;
+     justify-self: start;
+     min-height: 3rem;
+     padding: 0 1.25rem;
+     border: 2px solid rgba(234, 240, 255, 0.55);
+     border-radius: ${layout.radius};
+     background: transparent;
+     color: ${colors.floor};
+     font: inherit;
+     font-weight: 700;
+     cursor: pointer;
+     transition: background-color 0.15s ease;
+
+     &:hover {
+          background: rgba(234, 240, 255, 0.14);
+     }
+
+     ${focusRing}
+`
+
 export const ConsoleHint = styled.p`
      color: rgba(234, 240, 255, 0.8);
      font-size: 0.9375rem;
